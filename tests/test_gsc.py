@@ -2,9 +2,12 @@ import socket
 import unittest
 from unittest import mock
 
+import requests
+
+import gsc
 from gsc import (
     normalize_site, pick_site, parse_sitemap_locs, is_sitemap_index,
-    _is_public_http_url, _fetch_guarded,
+    _is_public_http_url, _fetch_guarded, fetch_sitemap_urls,
 )
 
 
@@ -25,10 +28,16 @@ class TestPickSite(unittest.TestCase):
         self.assertEqual(pick_site(self.SITES, "tradelink-exp.com"), "sc-domain:tradelink-exp.com")
     def test_url_prefix(self):
         self.assertEqual(pick_site(self.SITES, "xianmi.co"), "https://xianmi.co/")
-    def test_www(self):
+    def test_www_exact(self):
         self.assertEqual(pick_site(self.SITES, "www.foo.com"), "https://www.foo.com/")
+    def test_www_variant(self):
+        self.assertEqual(pick_site(self.SITES, "foo.com"), "https://www.foo.com/")
     def test_no_match(self):
         self.assertIsNone(pick_site(self.SITES, "unknown.com"))
+    def test_substring_not_matched(self):
+        self.assertIsNone(pick_site(["sc-domain:notfoo.com"], "foo.com"))
+    def test_suffix_not_matched(self):
+        self.assertIsNone(pick_site(["https://foo.com.cn/"], "foo.com"))
 
 
 class TestSitemap(unittest.TestCase):
@@ -41,6 +50,10 @@ class TestSitemap(unittest.TestCase):
         self.assertFalse(is_sitemap_index(parse_sitemap_locs(self.FLAT)))
     def test_index_detected(self):
         self.assertTrue(is_sitemap_index(parse_sitemap_locs(self.INDEX)))
+
+    @mock.patch("gsc.requests.get", side_effect=requests.RequestException("404"))
+    def test_fetch_empty_on_404(self, get):
+        self.assertEqual(fetch_sitemap_urls("https://example.com/"), [])
 
 
 class TestIsPublicHttpUrl(unittest.TestCase):
@@ -77,6 +90,20 @@ class TestFetchGuarded(unittest.TestCase):
         r.headers = {"Location": "http://127.0.0.1/x"}
         get.return_value = r
         self.assertIsNone(_fetch_guarded("https://x.com/sitemap-0.xml"))
+
+    @mock.patch("gsc._is_public_http_url", return_value=True)
+    @mock.patch("gsc.requests.get", side_effect=requests.RequestException("timeout"))
+    def test_network_error_returns_none(self, get, _):
+        self.assertIsNone(_fetch_guarded("https://x.com/sitemap-0.xml"))
+
+
+class TestMainErrorHandling(unittest.TestCase):
+    @mock.patch("gsc.get_token", side_effect=RuntimeError("boom"))
+    @mock.patch("gsc.os.path.exists", return_value=True)
+    def test_auth_failure_actionable(self, exists, get_token):
+        with mock.patch("gsc.sys.argv", ["gsc.py"]), mock.patch("gsc.sys.exit") as ex:
+            gsc.main()
+        self.assertIn("client_email", str(ex.call_args[0][0]))
 
 
 if __name__ == "__main__":

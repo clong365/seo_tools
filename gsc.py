@@ -35,13 +35,17 @@ def normalize_site(s):
     return s.split("/", 1)[0]
 
 
+def _bare_host(s):
+    return normalize_site(s).removeprefix("sc-domain:")
+
+
 def pick_site(sites, want):
     want = normalize_site(want)
     for s in sites:
-        if normalize_site(s) == want:
+        if _bare_host(s) == want:
             return s
     for s in sites:
-        if want in s:
+        if _bare_host(s) == "www." + want:
             return s
     return None
 
@@ -80,7 +84,10 @@ def _fetch_guarded(url, hops=3):
     for _ in range(hops + 1):
         if not _is_public_http_url(cur):
             return None
-        r = requests.get(cur, timeout=30, allow_redirects=False)
+        try:
+            r = requests.get(cur, timeout=30, allow_redirects=False)
+        except requests.RequestException:
+            return None
         if r.status_code in (301, 302, 303, 307, 308) and r.headers.get("Location"):
             cur = urljoin(cur, r.headers["Location"])
             continue
@@ -228,8 +235,14 @@ def main():
         sys.exit(f"找不到 key 文件: {key_path}\n"
                  f"先到 GCP 建 service account，把 JSON 放 ~/.config/seo-tools/gsc-sa.json。")
 
-    token = get_token(key_path)
-    sites = list_sites(token)
+    try:
+        token = get_token(key_path)
+        sites = list_sites(token)
+    except Exception as ex:
+        sys.exit(f"GSC API 访问失败: {ex}\n"
+                 f"检查：key 文件是否有效、service account 是否已授权（把 client_email 加到各资源"
+                 f"「用户和权限」给「完全」）、大陆是否已设 https_proxy 代理。")
+        return  # 生产环境 sys.exit 抛 SystemExit；此处兜底防测试 mock 后继续
 
     print(f"=== 可访问站点（{len(sites)}）===")
     for s in sites:
@@ -252,6 +265,8 @@ def main():
         if urls:
             print(f"\n=== URL Inspection（共 {len(urls)} 个 URL）===")
             url_inspection(token, site, urls, args.inspect_limit)
+        else:
+            print("\n=== URL Inspection ===\n  sitemap 未取到 URL，跳过（可能无 sitemap 或抓取失败）")
 
 
 if __name__ == "__main__":
