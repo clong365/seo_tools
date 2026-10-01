@@ -7,11 +7,12 @@
 """
 import argparse
 import datetime as dt
+import ipaddress
 import os
 import re
 import sys
 import time
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import requests
 
@@ -50,6 +51,19 @@ def parse_sitemap_locs(xml_text):
 
 def is_sitemap_index(locs):
     return bool(locs) and all(loc.rstrip("/").endswith(".xml") for loc in locs)
+
+
+def _is_public_http_url(url):
+    """只放行 http/https 且主机非回环/私网/链路本地的 URL（防下钻 SSRF）。"""
+    try:
+        u = urlsplit(url)
+        if u.scheme not in ("http", "https") or not u.hostname:
+            return False
+        ip = ipaddress.ip_address(u.hostname.lower().rstrip("."))  # 域名抛 ValueError
+        return not (ip.is_loopback or ip.is_private or ip.is_link_local
+                    or ip.is_reserved or ip.is_unspecified)
+    except ValueError:
+        return True  # 域名，放行（DNS 解析交给 requests）
 
 
 def get_token(key_path):
@@ -92,6 +106,8 @@ def fetch_sitemap_urls(base_url):
         if is_sitemap_index(locs):
             urls = []
             for sub in locs:
+                if not _is_public_http_url(sub):
+                    continue
                 try:
                     rr = requests.get(sub, timeout=30)
                     rr.raise_for_status()

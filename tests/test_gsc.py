@@ -1,5 +1,5 @@
 import unittest
-from gsc import normalize_site, pick_site, parse_sitemap_locs, is_sitemap_index
+from gsc import normalize_site, pick_site, parse_sitemap_locs, is_sitemap_index, _is_public_http_url
 
 
 class TestNormalizeSite(unittest.TestCase):
@@ -35,6 +35,20 @@ class TestSitemap(unittest.TestCase):
         self.assertFalse(is_sitemap_index(parse_sitemap_locs(self.FLAT)))
     def test_index_detected(self):
         self.assertTrue(is_sitemap_index(parse_sitemap_locs(self.INDEX)))
+
+
+
+class TestIsPublicHttpUrl(unittest.TestCase):
+    def test_http_ok(self):
+        self.assertTrue(_is_public_http_url("https://xianmi.co/sitemap-0.xml"))
+    def test_link_local_rejected(self):
+        self.assertFalse(_is_public_http_url("http://169.254.169.254/latest/meta-data"))
+    def test_loopback_rejected(self):
+        self.assertFalse(_is_public_http_url("http://127.0.0.1:8080/x"))
+    def test_private_rejected(self):
+        self.assertFalse(_is_public_http_url("http://192.168.1.1/"))
+    def test_bad_scheme_rejected(self):
+        self.assertFalse(_is_public_http_url("file:///etc/passwd"))
 
 
 if __name__ == "__main__":
