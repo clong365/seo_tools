@@ -10,9 +10,10 @@ import datetime as dt
 import ipaddress
 import os
 import re
+import socket
 import sys
 import time
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote, urlsplit, urljoin
 
 import requests
 
@@ -54,16 +55,37 @@ def is_sitemap_index(locs):
 
 
 def _is_public_http_url(url):
-    """只放行 http/https 且主机非回环/私网/链路本地的 URL（防下钻 SSRF）。"""
+    """SSRF 防护：仅放行 http/https 且主机（字面量或 DNS 解析结果）全为公网地址的 URL。"""
     try:
         u = urlsplit(url)
         if u.scheme not in ("http", "https") or not u.hostname:
             return False
-        ip = ipaddress.ip_address(u.hostname.lower().rstrip("."))  # 域名抛 ValueError
-        return not (ip.is_loopback or ip.is_private or ip.is_link_local
-                    or ip.is_reserved or ip.is_unspecified)
-    except ValueError:
-        return True  # 域名，放行（DNS 解析交给 requests）
+        host = u.hostname.lower().rstrip(".")
+        try:
+            ips = [ipaddress.ip_address(host)]
+        except ValueError:
+            try:
+                ips = [ipaddress.ip_address(info[4][0]) for info in socket.getaddrinfo(host, None)]
+            except socket.gaierror:
+                return False
+        return all(not (ip.is_loopback or ip.is_private or ip.is_link_local
+                        or ip.is_reserved or ip.is_unspecified) for ip in ips)
+    except (ValueError, OSError):
+        return False
+
+
+def _fetch_guarded(url, hops=3):
+    """SSRF 防护的 fetch：校验 URL，逐跳校验并跟随重定向（相对 Location 用 urljoin）。"""
+    cur = url
+    for _ in range(hops + 1):
+        if not _is_public_http_url(cur):
+            return None
+        r = requests.get(cur, timeout=30, allow_redirects=False)
+        if r.status_code in (301, 302, 303, 307, 308) and r.headers.get("Location"):
+            cur = urljoin(cur, r.headers["Location"])
+            continue
+        return r
+    return None
 
 
 def get_token(key_path):
@@ -106,10 +128,10 @@ def fetch_sitemap_urls(base_url):
         if is_sitemap_index(locs):
             urls = []
             for sub in locs:
-                if not _is_public_http_url(sub):
+                rr = _fetch_guarded(sub)
+                if rr is None:
                     continue
                 try:
-                    rr = requests.get(sub, timeout=30)
                     rr.raise_for_status()
                     urls.extend(parse_sitemap_locs(rr.text))
                 except requests.RequestException:

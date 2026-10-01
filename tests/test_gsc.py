@@ -1,5 +1,11 @@
+import socket
 import unittest
-from gsc import normalize_site, pick_site, parse_sitemap_locs, is_sitemap_index, _is_public_http_url
+from unittest import mock
+
+from gsc import (
+    normalize_site, pick_site, parse_sitemap_locs, is_sitemap_index,
+    _is_public_http_url, _fetch_guarded,
+)
 
 
 class TestNormalizeSite(unittest.TestCase):
@@ -37,10 +43,7 @@ class TestSitemap(unittest.TestCase):
         self.assertTrue(is_sitemap_index(parse_sitemap_locs(self.INDEX)))
 
 
-
 class TestIsPublicHttpUrl(unittest.TestCase):
-    def test_http_ok(self):
-        self.assertTrue(_is_public_http_url("https://xianmi.co/sitemap-0.xml"))
     def test_link_local_rejected(self):
         self.assertFalse(_is_public_http_url("http://169.254.169.254/latest/meta-data"))
     def test_loopback_rejected(self):
@@ -49,6 +52,31 @@ class TestIsPublicHttpUrl(unittest.TestCase):
         self.assertFalse(_is_public_http_url("http://192.168.1.1/"))
     def test_bad_scheme_rejected(self):
         self.assertFalse(_is_public_http_url("file:///etc/passwd"))
+
+    @mock.patch("socket.getaddrinfo")
+    def test_domain_public_ok(self, dns):
+        dns.return_value = [(2, 1, 6, "", ("1.2.3.4", 0))]
+        self.assertTrue(_is_public_http_url("https://xianmi.co/sitemap-0.xml"))
+
+    @mock.patch("socket.getaddrinfo")
+    def test_domain_private_rejected(self, dns):
+        dns.return_value = [(2, 1, 6, "", ("10.0.0.1", 0))]
+        self.assertFalse(_is_public_http_url("http://evil.internal/x"))
+
+    @mock.patch("socket.getaddrinfo")
+    def test_domain_dns_fail_rejected(self, dns):
+        dns.side_effect = socket.gaierror
+        self.assertFalse(_is_public_http_url("http://nope.invalid/x"))
+
+
+class TestFetchGuarded(unittest.TestCase):
+    @mock.patch("gsc.requests.get")
+    def test_redirect_to_internal_rejected(self, get):
+        r = mock.MagicMock()
+        r.status_code = 302
+        r.headers = {"Location": "http://127.0.0.1/x"}
+        get.return_value = r
+        self.assertIsNone(_fetch_guarded("https://x.com/sitemap-0.xml"))
 
 
 if __name__ == "__main__":
