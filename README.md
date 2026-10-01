@@ -11,8 +11,8 @@ uv pip install google-auth requests
 
 ## key 配置（放仓库外）
 
-- GSC service account：`~/.config/seo-tools/gsc-sa.json`
-- Bing API key：`~/.config/seo-tools/bing-api-key.txt`
+- GSC service account：`~/.config/seo-tools/gsc-sa.json`（配置见 `docs/gsc-api-setup.md`）
+- Bing API key：`~/.config/seo-tools/bing-api-key.txt`（配置见 `docs/bing-api-setup.md`）
 
 ## 用法
 
