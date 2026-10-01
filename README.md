@@ -1,4 +1,4 @@
-# seo_tools — GSC / Bing / GA4 复查
+# seo_tools — GSC / Bing / GA4 / CF Web Analytics 复查
 
 tradelink、xianmi 及将来项目共用的 SEO 收录/表现/流量复查脚本。
 
@@ -14,6 +14,7 @@ uv pip install google-auth requests
 - GSC service account：`~/.config/seo-tools/gsc-sa.json`（配置见 `docs/gsc-api-setup.md`）
 - Bing API key：`~/.config/seo-tools/bing-api-key.txt`（配置见 `docs/bing-api-setup.md`）
 - GA4 用同一把 service account：`~/.config/seo-tools/gsc-sa.json`（配置见 `docs/ga-setup.md`）
+- CF Web Analytics：`~/.config/seo-tools/cf-api-token.txt`（配置见 `docs/cf-setup.md`）
 
 ## 用法
 
@@ -22,9 +23,10 @@ uv pip install google-auth requests
 .venv/bin/python gsc.py --site xianmi.co
 .venv/bin/python bing.py --site tradelink-exp.com
 .venv/bin/python ga.py --property 507549889
+.venv/bin/python cf.py
 ```
 
-大陆访问 GSC / GA4 需 `https_proxy` 代理；Bing 直连即可。
+大陆访问 GSC / GA4 需 `https_proxy` 代理；Bing、CF 直连即可。
 
 ## 测试
 
