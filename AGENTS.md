@@ -10,6 +10,7 @@ GSC + Bing + GA4 + CF Web Analytics 收录/表现/流量复查的共享 CLI，�
 - IndexNow：`indexnow.py`（推送，非查询；key 在 `~/.config/seo-tools/indexnow.json`，按 host 配置）——从 xianmi-cn/tools/submit-indexnow.mjs 移植为共享版（2026-10-02），URL 源=线上 sitemap（`--sitemap` 可重复）或 `--file`
 - CF Web Analytics：`.venv/bin/python cf.py --site siteTag`（GraphQL RUM，`viewer.accounts` 下，过滤用 accountTag+siteTag）；`--edge` = zone 级 `httpRequestsAdaptiveGroups` 按日×状态码（xianmi 旧 URL 301 趋势观测，2026-10-02 加）——**默认只统计 `requestSource: "eyeball"`（真实客户端，含爬虫）**，`--all-sources` 才含全部来源（含 `edgeWorkerCacheAPI` 遥测行）
 - CrUX：`.venv/bin/python crux.py [--url 单页] [--form-factor PHONE|DESKTOP]`（真实用户 Core Web Vitals，默认 origin https://www.xianmi.co；key 在 `~/.config/seo-tools/crux-api-key.txt`，GCP 项目 GoogleSearchConsole，API 限制=仅 Chrome UX Report API）
+- PSI：`.venv/bin/python psi.py [--url …] [--strategy mobile|desktop] [--only field|lab]`（PageSpeed Insights：**实验室数据由 Google 侧跑 Lighthouse** + **CrUX 现场数据**，因此不受我们本机代理/异地出口干扰；key 在 `~/.config/seo-tools/psi-api-key.txt`，GCP 项目里启用 PageSpeed Insights API 后创建即可，免费）
 
 ## 关键约束
 
@@ -48,6 +49,7 @@ GSC + Bing + GA4 + CF Web Analytics 收录/表现/流量复查的共享 CLI，�
 - **CF 边缘响应时间指标：schema 里有、本 token 拿不到**（2026-10-02 实测）：`ZoneHttpRequestsAdaptiveGroupsAvg/Quantiles` 暴露 `edgeTimeToFirstByteMs`、`edgeDnsResponseTimeMs`、`originResponseDurationMs` 等（含 P25–P999 分位），但查 `avg { edgeTimeToFirstByteMs }` 或 `quantiles { edgeTimeToFirstByteMsP50 }` 一律 **authz 拒绝**（"zone … does not have access to the field"，schema 字段名会小写成 edgetimetofirstbytems，可据此辨认这棵错误）。⚠️ **不要拿 `originResponseDurationMs` 当"取源时延"**：按 colo 分组时绝大多数组返回 null（Worker+Cache API 路径没有传统 origin），仅少数 colo 有值（实测 AMS 42.6ms / CDG 188ms），不能用来做"距离 vs 延迟"判断。**结论：按 colo 测边缘延迟这条路在 API 上不通。** 另一条替代路径（无需 API）：**CF 控制台 → Analytics → Performance 页按 colo 显示 TTFB**，可直接看"各 colo TTFB 是否随距离拉长"。review 另用 cf CLI 的 469-scope OAuth 复测，`edgeTimeToFirstByteMs` **同样 authz 拒绝** → 换凭证解决不了，需另配权限。
 - **CF**：RUM 与 zone 边缘数据集可读；Workers Logs / Logpush 未配置（要看 worker 运行日志需另开）；**Workers Analytics Engine 查询未验证**（301 专项写入 `xianmi_301` dataset，查询走 GraphQL `accountTag` 下 `analyticsEngineAdaptiveGroups`，预期同一把 cfut_ 令牌已覆盖，首次用到时补记）。
 - **百度**：无 API，且相关项目不做百度优化。
+- **PSI（PageSpeed Insights）**：必须有 API key——**无 key 直连会落到共享默认项目并报 429**（实测 2026-10-02：`project_number:583797351490` 日配额已耗尽）；字段名注意：现场数据在 `loadingExperience`（URL 级，长尾页常缺失）/`originLoadingExperience`（源级，兜底）。
 
 ## 待补数据源（按需，非阻塞）
 
