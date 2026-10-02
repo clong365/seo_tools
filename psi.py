@@ -23,7 +23,7 @@ import sys
 import requests
 
 API_URL = "https://www.googleapis.com/pagespeedonline/v5/runPagespeed"
-DEFAULT_KEY = "~/.config/seo-tools/psi-sa.json"   # 实测可用（SA + scope openid）；也可指向 API key 文本文件
+DEFAULT_KEY = "~/.config/seo-tools/gsc-sa.json"   # 同一把 SA 通用于 GSC/GA4/PSI（实测 PSI 需 scope openid）；也可指向 API key 文本文件
 DEFAULT_URL = "https://www.xianmi.co/"
 TIMEOUT = 120
 
