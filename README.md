@@ -27,6 +27,7 @@ uv pip install google-auth requests
 .venv/bin/python cf.py --edge           # zone 级边缘请求按日×状态码（301/404 趋势，含无 JS 爬虫）
 .venv/bin/python indexnow.py --site www.xianmi.co --sitemap /sitemap-index.xml --sitemap /zh-tw/sitemap-index.xml  # IndexNow 全量推送
 .venv/bin/python indexnow.py --file urls.txt     # 增量推送（先 --dry-run 预演）
+.venv/bin/python crux.py                 # CrUX 真实用户 Core Web Vitals（--url 单页 / --form-factor PHONE）
 ```
 
 大陆访问 GSC / GA4 需 `https_proxy` 代理；Bing、CF 直连即可。
