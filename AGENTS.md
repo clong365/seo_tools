@@ -22,6 +22,21 @@ GSC + Bing + GA4 + CF Web Analytics 收录/表现/流量复查的共享 CLI，�
 - 单测 stdlib unittest：`.venv/bin/python -m unittest discover -s tests -v`。
 - 改脚本 HTTP 层保持 requests，别引入 httplib2 / google-api-python-client。
 
+## CF GraphQL 速查（2026-10-02 实测）
+
+端点 `https://api.cloudflare.com/client/v4/graphql`，Bearer = cf-api-token.txt。
+
+| 数据集 | 位置 | 用途 | 关键维度 |
+|---|---|---|---|
+| `rumPageloadEventsAdaptiveGroups` | `viewer.accounts(filter: {accountTag})` | CF Web Analytics（JS beacon，无 JS 爬虫不计） | `siteTag`（过滤）、`countryName`、`requestPath`、`deviceType` |
+| `httpRequestsAdaptiveGroups` | `viewer.zones(filter: {zoneTag})` | 边缘真实请求（含无 JS 爬虫） | `date`、`edgeResponseStatus`、**`clientRequestPath`**、`clientCountryName` |
+
+- ⚠️ **路径维度名两头不一样**：RUM 数据集是 `requestPath`，边缘数据集是 **`clientRequestPath`**（写成 `requestPath` 会静默返回 null 结果，不报错——2026-10-02 排查 404 构成时踩过）。
+- 模糊匹配路径用 `clientRequestPath_like: "/page%"`；按计数排序 `orderBy: [count_DESC]`。
+- 边缘数据集按 `date`（`date_geq`/`date_leq`，格式 `YYYY-MM-DD`）过滤；RUM 用 `datetime_geq`/`datetime_leq`（ISO8601）。
+- Analytics Engine 查询走 `cf analytics_engine sql query`（CLI）或 `accountTag` 下 `analyticsEngineAdaptiveGroups`（GraphQL）；xianmi 的 301/410 打点写入 dataset `xianmi_301`。
+- 参考实现：`cf.py`（RUM 汇总/国家/路径/设备）与 `cf.py --edge`（zone 边缘按日×状态码）。
+
 ## 数据覆盖边界（2026-10-02 审计）
 
 现有凭证覆盖上述全部查询功能，**无需增加权限**。以下是查不到的，别浪费时间找路径：
