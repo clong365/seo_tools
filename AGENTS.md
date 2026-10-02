@@ -34,7 +34,7 @@ GSC + Bing + GA4 + CF Web Analytics 收录/表现/流量复查的共享 CLI，�
 - ⚠️ **路径维度名两头不一样**：RUM 数据集是 `requestPath`，边缘数据集是 **`clientRequestPath`**（写成 `requestPath` 会静默返回 null 结果，不报错——2026-10-02 排查 404 构成时踩过）。
 - 模糊匹配路径用 `clientRequestPath_like: "/page%"`；按计数排序 `orderBy: [count_DESC]`。
 - 边缘数据集按 `date`（`date_geq`/`date_leq`，格式 `YYYY-MM-DD`）过滤；RUM 用 `datetime_geq`/`datetime_leq`（ISO8601）。
-- Analytics Engine 查询走 `cf analytics_engine sql query`（CLI）或 `accountTag` 下 `analyticsEngineAdaptiveGroups`（GraphQL）；xianmi 的 301/410 打点写入 dataset `xianmi_301`。
+- Analytics Engine 查询：写 SQL 到文件后 `cf analytics_engine sql query --file q.sql`（SQL 末尾加 `FORMAT JSON` 得单一 JSON，否则 NDJSON；返回的数值是**字符串**，求和前要转 int）。示例：`SELECT blob1 AS family, blob3 AS site, blob4 AS kind, count() AS n FROM xianmi_301 WHERE timestamp > NOW() - INTERVAL '6' HOUR GROUP BY family, site, kind ORDER BY n DESC FORMAT JSON`（xianmi 的 301/410 打点）。
 - 参考实现：`cf.py`（RUM 汇总/国家/路径/设备）与 `cf.py --edge`（zone 边缘按日×状态码）。
 
 ## 数据覆盖边界（2026-10-02 审计）
