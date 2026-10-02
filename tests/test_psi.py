@@ -26,12 +26,33 @@ class TestLoadKey(unittest.TestCase):
             psi.load_key("/tmp/definitely-missing-psi-key.txt")
         self.assertIn("PageSpeed Insights API", str(cm.exception))
 
-    def test_existing_key_is_stripped(self):
+    def test_existing_api_key_is_returned_as_tuple(self):
         with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
             f.write("  ABC123\n")
             path = f.name
         try:
-            self.assertEqual(psi.load_key(path), "ABC123")
+            self.assertEqual(psi.load_key(path), ("apikey", "ABC123"))
+        finally:
+            os.unlink(path)
+
+    def test_service_account_json_detected(self):
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+            f.write('{"type": "service_account", "client_email": "x@y.iam"}')
+            path = f.name
+        try:
+            mode, value = psi.load_key(path)
+            self.assertEqual(mode, "sa")
+            self.assertEqual(value, path)
+        finally:
+            os.unlink(path)
+
+    def test_non_service_account_json_exits(self):
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+            f.write('{"type": "authorized_user"}')
+            path = f.name
+        try:
+            with self.assertRaises(SystemExit):
+                psi.load_key(path)
         finally:
             os.unlink(path)
 
