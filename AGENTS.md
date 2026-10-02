@@ -45,6 +45,7 @@ GSC + Bing + GA4 + CF Web Analytics 收录/表现/流量复查的共享 CLI，�
 
 - **GSC 无 API 可查**（官方未开放，只能看控制台）：收录覆盖率报告（coverage）、抓取统计（crawl stats）、外链、手动处置、Discover。Core Web Vitals 走 CrUX（见运行节）。
 - **GA4**：scope 是 `analytics.readonly`（只读是设计），管理类操作查不到；用户级/Explore 部分维度仅控制台；BigQuery 导出未开通。realtime 报表同 scope 理论可用，未实测。
+- **CF 边缘响应时间指标：schema 里有、本 token 拿不到**（2026-10-02 实测）：`ZoneHttpRequestsAdaptiveGroupsAvg/Quantiles` 暴露 `edgeTimeToFirstByteMs`、`edgeDnsResponseTimeMs`、`originResponseDurationMs` 等（含 P25–P999 分位），但查 `avg { edgeTimeToFirstByteMs }` 或 `quantiles { edgeTimeToFirstByteMsP50 }` 一律 **authz 拒绝**（"zone … does not have access to the field"，schema 字段名会小写成 edgetimetofirstbytems，可据此辨认这棵错误）。⚠️ **不要拿 `originResponseDurationMs` 当"取源时延"**：按 colo 分组时绝大多数组返回 null（Worker+Cache API 路径没有传统 origin），仅少数 colo 有值（实测 AMS 42.6ms / CDG 188ms），不能用来做"距离 vs 延迟"判断。**结论：按 colo 测边缘延迟这条路在 API 上不通，需客户端多地域探测。**
 - **CF**：RUM 与 zone 边缘数据集可读；Workers Logs / Logpush 未配置（要看 worker 运行日志需另开）；**Workers Analytics Engine 查询未验证**（301 专项写入 `xianmi_301` dataset，查询走 GraphQL `accountTag` 下 `analyticsEngineAdaptiveGroups`，预期同一把 cfut_ 令牌已覆盖，首次用到时补记）。
 - **百度**：无 API，且相关项目不做百度优化。
 
