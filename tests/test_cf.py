@@ -48,6 +48,17 @@ class TestEdge(unittest.TestCase):
         self.assertIn("httpRequestsAdaptiveGroups", q)
         self.assertIn("edgeResponseStatus", q)
 
+    def test_build_query_filters_eyeball_by_default(self):
+        """默认必须只取真实客户端：否则 Worker Cache API 的遥测行
+        （requestSource=edgeWorkerCacheAPI）会污染状态码趋势——2026-10-02 实测
+        当日 504 记录 100% 来自该来源，而真实客户端 504=0。"""
+        q = build_edge_query("ZONE", "2026-09-01", "2026-10-01")
+        self.assertIn('requestSource: "eyeball"', q)
+
+    def test_build_query_can_include_all_sources(self):
+        q = build_edge_query("ZONE", "2026-09-01", "2026-10-01", eyeball=False)
+        self.assertNotIn("requestSource", q)
+
     def test_extract(self):
         resp = {"data": {"viewer": {"zones": [{"httpRequestsAdaptiveGroups": [
             {"count": 5, "dimensions": {"date": "2026-10-01", "edgeResponseStatus": 404}},

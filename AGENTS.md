@@ -8,7 +8,7 @@ GSC + Bing + GA4 + CF Web Analytics 收录/表现/流量复查的共享 CLI，�
 - Bing：`.venv/bin/python bing.py --site 域名`
 - GA4：`.venv/bin/python ga.py --property 属性ID`（账号 ID ≠ 属性 ID，`runReport` 用属性 ID）
 - IndexNow：`indexnow.py`（推送，非查询；key 在 `~/.config/seo-tools/indexnow.json`，按 host 配置）——从 xianmi-cn/tools/submit-indexnow.mjs 移植为共享版（2026-10-02），URL 源=线上 sitemap（`--sitemap` 可重复）或 `--file`
-- CF Web Analytics：`.venv/bin/python cf.py --site siteTag`（GraphQL RUM，`viewer.accounts` 下，过滤用 accountTag+siteTag）；`--edge` = zone 级 `httpRequestsAdaptiveGroups` 按日×状态码（xianmi 旧 URL 301 趋势观测，2026-10-02 加）
+- CF Web Analytics：`.venv/bin/python cf.py --site siteTag`（GraphQL RUM，`viewer.accounts` 下，过滤用 accountTag+siteTag）；`--edge` = zone 级 `httpRequestsAdaptiveGroups` 按日×状态码（xianmi 旧 URL 301 趋势观测，2026-10-02 加）——**默认只统计 `requestSource: "eyeball"`（真实客户端，含爬虫）**，`--all-sources` 才含全部来源（含 `edgeWorkerCacheAPI` 遥测行）
 - CrUX：`.venv/bin/python crux.py [--url 单页] [--form-factor PHONE|DESKTOP]`（真实用户 Core Web Vitals，默认 origin https://www.xianmi.co；key 在 `~/.config/seo-tools/crux-api-key.txt`，GCP 项目 GoogleSearchConsole，API 限制=仅 Chrome UX Report API）
 
 ## 关键约束
@@ -29,9 +29,11 @@ GSC + Bing + GA4 + CF Web Analytics 收录/表现/流量复查的共享 CLI，�
 | 数据集 | 位置 | 用途 | 关键维度 |
 |---|---|---|---|
 | `rumPageloadEventsAdaptiveGroups` | `viewer.accounts(filter: {accountTag})` | CF Web Analytics（JS beacon，无 JS 爬虫不计） | `siteTag`（过滤）、`countryName`、`requestPath`、`deviceType` |
-| `httpRequestsAdaptiveGroups` | `viewer.zones(filter: {zoneTag})` | 边缘真实请求（含无 JS 爬虫） | `date`、`edgeResponseStatus`、**`clientRequestPath`**、`clientCountryName` |
+| `httpRequestsAdaptiveGroups` | `viewer.zones(filter: {zoneTag})` | 边缘真实请求（含无 JS 爬虫） | `date`、`edgeResponseStatus`、**`clientRequestPath`**、`clientCountryName`、**`requestSource`** |
 
 - ⚠️ **路径维度名两头不一样**：RUM 数据集是 `requestPath`，边缘数据集是 **`clientRequestPath`**（写成 `requestPath` 会静默返回 null 结果，不报错——2026-10-02 排查 404 构成时踩过）。
+- ⚠️ **查状态码趋势必须加 `requestSource: "eyeball"`**（2026-10-02 review 定性）：Worker 里每次 `caches.default.match/put` 都会被 CF 记成 `requestSource: "edgeWorkerCacheAPI"` 的**额外请求行**——它们带 `clientRequestHTTPProtocol: UNK`、`userAgent` 空、路径是 cache key 形状，且**会出现 504/204**。这不是站点故障：当日实测该来源占 504 记录的 **100%**，而 `requestSource: "eyeball"`（真实客户端，含爬虫）**504 = 0**；同日 204 的 16 倍"暴涨"同源。**不加这个过滤，监控图会被遥测噪声淹没**（对照：200 的 protocol 分布 HTTP/1.1/2/3 齐全、UNK 仅一小部分，UNK 是有区分度的信号）。
+  - 另注：`originResponseStatus` 在本数据集下 200/404/504/204 **一律为 0**，是无效值，**不能**当"未到源"的判据。
 - 模糊匹配路径用 `clientRequestPath_like: "/page%"`；按计数排序 `orderBy: [count_DESC]`。
 - 边缘数据集按 `date`（`date_geq`/`date_leq`，格式 `YYYY-MM-DD`）过滤；RUM 用 `datetime_geq`/`datetime_leq`（ISO8601）。
 - Analytics Engine 查询：写 SQL 到文件后 `cf analytics_engine sql query --file q.sql`（SQL 末尾加 `FORMAT JSON` 得单一 JSON，否则 NDJSON；返回的数值是**字符串**，求和前要转 int）。示例：`SELECT blob1 AS family, blob3 AS site, blob4 AS kind, count() AS n FROM xianmi_301 WHERE timestamp > NOW() - INTERVAL '6' HOUR GROUP BY family, site, kind ORDER BY n DESC FORMAT JSON`（xianmi 的 301/410 打点）。

@@ -55,15 +55,22 @@ def build_query(account, site, start, end, dimension=None):
 '''
 
 
-def build_edge_query(zone, start_date, end_date):
-    """zone 级边缘请求按 日期×状态码 统计（含不执行 JS 的爬虫，RUM 的补集口径）。"""
+def build_edge_query(zone, start_date, end_date, eyeball=True):
+    """zone 级边缘请求按 日期×状态码 统计（含无执行 JS 的爬虫，RUM 的补集口径）。
+
+    默认只统计 requestSource="eyeball"（真实客户端，含爬虫）——**必须**这样做：
+    Worker 的 Cache API 调用会被 CF 记成 requestSource="edgeWorkerCacheAPI" 的
+    额外行（2026-10-02 review 实测：当日 504 记录 100% 来自该来源、真实客户端
+    504=0；204 的 16 倍暴涨同源），不过滤会把遥测噪声当成站点故障。
+    """
+    src = ', requestSource: "eyeball"' if eyeball else ''
     return f'''
 {{
   viewer {{
     zones(filter: {{zoneTag: "{zone}"}}) {{
       httpRequestsAdaptiveGroups(
         limit: 5000
-        filter: {{date_geq: "{start_date}", date_leq: "{end_date}"}}
+        filter: {{date_geq: "{start_date}", date_leq: "{end_date}"{src}}}
         orderBy: [date_ASC, edgeResponseStatus_ASC]
       ) {{
         count
@@ -141,6 +148,8 @@ def main():
     ap.add_argument("--limit", type=int, default=20)
     ap.add_argument("--edge", action="store_true",
                     help="zone 级边缘请求按日×状态码（301/404 趋势，含无 JS 爬虫）")
+    ap.add_argument("--all-sources", action="store_true",
+                    help="--edge 时不过滤 requestSource（含 edgeWorkerCacheAPI 遥测行；默认只统计 eyeball）")
     ap.add_argument("--zone", default=os.environ.get("CF_ZONE", DEFAULT_ZONE))
     args = ap.parse_args()
 
@@ -153,9 +162,11 @@ def main():
     if args.edge:
         end_d = dt.date.today() - dt.timedelta(days=1)
         start_d = end_d - dt.timedelta(days=args.days - 1)
-        print(f"=== CF 边缘请求（{start_d} ~ {end_d}，zone {args.zone}）===")
+        scope = "全部来源（含 Cache API 遥测）" if args.all_sources else "仅 eyeball（真实客户端）"
+        print(f"=== CF 边缘请求（{start_d} ~ {end_d}，zone {args.zone}，{scope}）===")
         try:
-            resp = run_query(token, build_edge_query(args.zone, start_d.isoformat(), end_d.isoformat()))
+            resp = run_query(token, build_edge_query(
+                args.zone, start_d.isoformat(), end_d.isoformat(), eyeball=not args.all_sources))
             print_edge(resp)
         except Exception as ex:
             print(f"  边缘查询失败: {ex}")
