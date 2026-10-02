@@ -23,7 +23,7 @@ import sys
 import requests
 
 API_URL = "https://www.googleapis.com/pagespeedonline/v5/runPagespeed"
-DEFAULT_KEY = "~/.config/seo-tools/gsc-sa.json"   # 同一把 SA 通用于 GSC/GA4/PSI（实测 PSI 需 scope openid）；也可指向 API key 文本文件
+DEFAULT_KEY = "~/.config/seo-tools/google-sa.json"   # 同一把 SA 通用于 GSC/GA4/PSI（实测 PSI 需 scope openid）；也可指向 API key 文本文件
 DEFAULT_URL = "https://www.xianmi.co/"
 TIMEOUT = 120
 
@@ -59,7 +59,7 @@ CATEGORY_RANK = {"FAST": "好", "AVERAGE": "需改进", "SLOW": "差"}
 def load_key(path):
     """返回 (mode, value)：mode='sa' 时 value=JSON 路径（用 Bearer token）；mode='apikey' 时 value=密钥串。
 
-    两种都支持：Service Account JSON（本项目已有 `gsc-sa.json`，同一把可用）或普通 API key 文本。
+    两种都支持：Service Account JSON（本项目已有 `google-sa.json`，同一把可用）或普通 API key 文本。
     """
     p = os.path.expanduser(path)
     if not os.path.exists(p):

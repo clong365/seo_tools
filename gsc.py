@@ -21,7 +21,7 @@ SCOPES = [
     "https://www.googleapis.com/auth/webmasters",
     "https://www.googleapis.com/auth/webmasters.readonly",
 ]
-DEFAULT_KEY = "~/.config/seo-tools/gsc-sa.json"
+DEFAULT_KEY = "~/.config/seo-tools/google-sa.json"
 SITES_URL = "https://www.googleapis.com/webmasters/v3/sites"
 SITEMAPS_URL = "https://www.googleapis.com/webmasters/v3/sites/{site}/sitemaps"
 ANALYTICS_URL = "https://www.googleapis.com/webmasters/v3/sites/{site}/searchAnalytics/query"
@@ -233,7 +233,7 @@ def main():
     key_path = os.path.expanduser(args.key)
     if not os.path.exists(key_path):
         sys.exit(f"找不到 key 文件: {key_path}\n"
-                 f"先到 GCP 建 service account，把 JSON 放 ~/.config/seo-tools/gsc-sa.json。")
+                 f"先到 GCP 建 service account，把 JSON 放 ~/.config/seo-tools/google-sa.json。")
 
     try:
         token = get_token(key_path)

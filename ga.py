@@ -11,7 +11,7 @@ import sys
 import requests
 
 SCOPES = ["https://www.googleapis.com/auth/analytics.readonly"]
-DEFAULT_KEY = "~/.config/seo-tools/gsc-sa.json"
+DEFAULT_KEY = "~/.config/seo-tools/google-sa.json"
 BASE = "https://analyticsdata.googleapis.com/v1beta"
 DEFAULT_PROPERTY = "507549889"  # goodweb（xianmi）
 TIMEOUT = 30
@@ -75,7 +75,7 @@ def main():
 
     key_path = os.path.expanduser(args.key)
     if not os.path.exists(key_path):
-        sys.exit(f"找不到 key 文件: {key_path}\n把 service account JSON 放 ~/.config/seo-tools/gsc-sa.json。")
+        sys.exit(f"找不到 key 文件: {key_path}\n把 service account JSON 放 ~/.config/seo-tools/google-sa.json。")
 
     try:
         token = get_token(key_path)

@@ -4,18 +4,18 @@ GSC + Bing + GA4 + CF Web Analytics 收录/表现/流量复查的共享 CLI，�
 
 ## 运行
 
-- GSC：`.venv/bin/python gsc.py [--site 域名]`（不传 --site 列所有可访问站点）
+- GSC：`.venv/bin/python gsc.py [--site 域名] [--no-inspect]`（不传 --site 列所有可访问站点）。⚠️ **默认会跑最多 50 条 URL Inspection（`--inspect-limit`，每条 sleep 1s + 接口本身慢）→ 单次约 3–5 分钟**；只做趋势/收录复查时**加 `--no-inspect`**（实测 7 秒完成）。2026-10-02 实测：不加时 200s 超时仍无输出，易被误判为"卡死/凭证坏了"——**不是**，凭证与接口都是好的。
 - Bing：`.venv/bin/python bing.py --site 域名`
 - GA4：`.venv/bin/python ga.py --property 属性ID`（账号 ID ≠ 属性 ID，`runReport` 用属性 ID）
 - IndexNow：`indexnow.py`（推送，非查询；key 在 `~/.config/seo-tools/indexnow.json`，按 host 配置）——从 xianmi-cn/tools/submit-indexnow.mjs 移植为共享版（2026-10-02），URL 源=线上 sitemap（`--sitemap` 可重复）或 `--file`
 - CF Web Analytics：`.venv/bin/python cf.py --site siteTag`（GraphQL RUM，`viewer.accounts` 下，过滤用 accountTag+siteTag）；`--edge` = zone 级 `httpRequestsAdaptiveGroups` 按日×状态码（xianmi 旧 URL 301 趋势观测，2026-10-02 加）——**默认只统计 `requestSource: "eyeball"`（真实客户端，含爬虫）**，`--all-sources` 才含全部来源（含 `edgeWorkerCacheAPI` 遥测行）
 - CrUX：`.venv/bin/python crux.py [--url 单页] [--form-factor PHONE|DESKTOP]`（真实用户 Core Web Vitals，默认 origin https://www.xianmi.co；key 在 `~/.config/seo-tools/crux-api-key.txt`，GCP 项目 GoogleSearchConsole，API 限制=仅 Chrome UX Report API）
-- PSI：`.venv/bin/python psi.py [--url …] [--strategy mobile|desktop] [--only field|lab]`（默认 key=`~/.config/seo-tools/gsc-sa.json` —— **与 GSC/GA4 同一把 SA**，无需另存）（**鉴权：Service Account JSON 即可，scope 必须是 `openid`**——实测 2026-10-02：`cloud-platform`/`cloud-platform.read-only`/`userinfo.email` 均 403 `ACCESS_TOKEN_SCOPE_INSUFFICIENT`，只有 `openid` 通过；同一把 `gsc-sa.json` 可直接用，**无需另建 API key**。PageSpeed Insights：**实验室数据由 Google 侧跑 Lighthouse** + **CrUX 现场数据**，因此不受我们本机代理/异地出口干扰；key 在 `~/.config/seo-tools/psi-api-key.txt`，GCP 项目里启用 PageSpeed Insights API 后创建即可，免费）
+- PSI：`.venv/bin/python psi.py [--url …] [--strategy mobile|desktop] [--only field|lab]`（默认 key=`~/.config/seo-tools/google-sa.json` —— **与 GSC/GA4 同一把 SA**，无需另存）（**鉴权：Service Account JSON 即可，scope 必须是 `openid`**——实测 2026-10-02：`cloud-platform`/`cloud-platform.read-only`/`userinfo.email` 均 403 `ACCESS_TOKEN_SCOPE_INSUFFICIENT`，只有 `openid` 通过；同一把 `google-sa.json` 可直接用，**无需另建 API key**。PageSpeed Insights：**实验室数据由 Google 侧跑 Lighthouse** + **CrUX 现场数据**，因此不受我们本机代理/异地出口干扰；key 在 `~/.config/seo-tools/psi-api-key.txt`，GCP 项目里启用 PageSpeed Insights API 后创建即可，免费）
 
 ## 关键约束
 
 - 依赖仅 google-auth + requests，uv 管理（`uv venv && uv pip install google-auth requests`）。
-- key 放 `~/.config/seo-tools/`（gsc-sa.json / bing-api-key.txt / cf-api-token.txt / indexnow.json / crux-api-key.txt），**绝不进 git**。
+- key 放 `~/.config/seo-tools/`（google-sa.json / bing-api-key.txt / cf-api-token.txt / indexnow.json / crux-api-key.txt），**绝不进 git**。
 - 大陆访问 GSC / GA4 必须走 `https_proxy` 代理（requests 自动读环境变量）；Bing `ssl.bing.com` 直连。
 - GA4 scope 用 `analytics.readonly`；属性用 property ID（数字），不是域名。
 - CF 用 API token（Bearer），非 service account；CF 分析数据四舍五入到 10。

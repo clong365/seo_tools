@@ -14,7 +14,7 @@
 | 账号 | `370440379`（goodweb） |
 | 属性 | `507549889` |
 | service account | `googlesearchconsole@lyrical-country-510308-d6.iam.gserviceaccount.com`（与 GSC 共用） |
-| 凭据文件 | `~/.config/seo-tools/gsc-sa.json`（不进 git） |
+| 凭据文件 | `~/.config/seo-tools/google-sa.json`（不进 git） |
 | 脚本 | `ga.py` |
 
 ## 用法
@@ -45,8 +45,8 @@
 ```bash
 uv venv && uv pip install google-auth requests
 mkdir -p ~/.config/seo-tools
-cp <下载的service account json> ~/.config/seo-tools/gsc-sa.json
-chmod 600 ~/.config/seo-tools/gsc-sa.json
+cp <下载的service account json> ~/.config/seo-tools/google-sa.json
+chmod 600 ~/.config/seo-tools/google-sa.json
 ```
 
 ## 怎么拿 property ID

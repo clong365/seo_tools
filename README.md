@@ -11,9 +11,9 @@ uv pip install google-auth requests
 
 ## key 配置（放仓库外）
 
-- GSC service account：`~/.config/seo-tools/gsc-sa.json`（配置见 `docs/gsc-api-setup.md`）
+- GSC service account：`~/.config/seo-tools/google-sa.json`（配置见 `docs/gsc-api-setup.md`）
 - Bing API key：`~/.config/seo-tools/bing-api-key.txt`（配置见 `docs/bing-api-setup.md`）
-- GA4 用同一把 service account：`~/.config/seo-tools/gsc-sa.json`（配置见 `docs/ga-setup.md`）
+- GA4 用同一把 service account：`~/.config/seo-tools/google-sa.json`（配置见 `docs/ga-setup.md`）
 - CF Web Analytics：`~/.config/seo-tools/cf-api-token.txt`（配置见 `docs/cf-setup.md`）
 
 ## 用法

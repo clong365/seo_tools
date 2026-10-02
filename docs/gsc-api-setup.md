@@ -14,7 +14,7 @@
 | GSC 资源 | `sc-domain:tradelink-exp.com`、`sc-domain:xianmi.co`（域名属性，多域名共用） |
 | service account | `googlesearchconsole@lyrical-country-510308-d6.iam.gserviceaccount.com` |
 | GCP 项目 | `lyrical-country-510308-d6` |
-| 凭据文件 | `~/.config/seo-tools/gsc-sa.json`（不进 git） |
+| 凭据文件 | `~/.config/seo-tools/google-sa.json`（不进 git） |
 | 脚本 | `gsc.py` |
 
 ## 多域名复用
@@ -53,8 +53,8 @@ service account 是 GCP 身份，与域名无关：把同一个 `client_email` �
 uv venv                                    # 创建 .venv（uv 管理，不入库）
 uv pip install google-auth requests         # 项目 Python 依赖
 mkdir -p ~/.config/seo-tools
-cp <下载的json> ~/.config/seo-tools/gsc-sa.json
-chmod 600 ~/.config/seo-tools/gsc-sa.json
+cp <下载的json> ~/.config/seo-tools/google-sa.json
+chmod 600 ~/.config/seo-tools/google-sa.json
 ```
 
 ## 重装系统 / JSON 丢失怎么办
@@ -62,7 +62,7 @@ chmod 600 ~/.config/seo-tools/gsc-sa.json
 **JSON 可随时重新生成**——持久资产是 service account + GSC 授权（都在云端），JSON 只是可下载的密钥材料，丢了不影响：
 
 1. GCP 控制台 → IAM 和管理 → 服务账号 → 选 `googlesearchconsole` → 密钥 → 添加密钥 → 创建新密钥 → JSON
-2. 放回 `~/.config/seo-tools/gsc-sa.json`，`chmod 600`
+2. 放回 `~/.config/seo-tools/google-sa.json`，`chmod 600`
 3. service account 邮箱不变，GSC 里的授权**仍在，无需重新授权**
 4. 旧 key 建议在控制台删掉/吊销
 
