@@ -49,6 +49,10 @@ GSC + Bing + GA4 + CF Web Analytics 收录/表现/流量复查的共享 CLI，�
 - **CF 边缘响应时间指标：schema 里有、本 token 拿不到**（2026-10-02 实测）：`ZoneHttpRequestsAdaptiveGroupsAvg/Quantiles` 暴露 `edgeTimeToFirstByteMs`、`edgeDnsResponseTimeMs`、`originResponseDurationMs` 等（含 P25–P999 分位），但查 `avg { edgeTimeToFirstByteMs }` 或 `quantiles { edgeTimeToFirstByteMsP50 }` 一律 **authz 拒绝**（"zone … does not have access to the field"，schema 字段名会小写成 edgetimetofirstbytems，可据此辨认这棵错误）。⚠️ **不要拿 `originResponseDurationMs` 当"取源时延"**：按 colo 分组时绝大多数组返回 null（Worker+Cache API 路径没有传统 origin），仅少数 colo 有值（实测 AMS 42.6ms / CDG 188ms），不能用来做"距离 vs 延迟"判断。**结论：按 colo 测边缘延迟这条路在 API 上不通。** 另一条替代路径（无需 API）：**CF 控制台 → Analytics → Performance 页按 colo 显示 TTFB**，可直接看"各 colo TTFB 是否随距离拉长"。review 另用 cf CLI 的 469-scope OAuth 复测，`edgeTimeToFirstByteMs` **同样 authz 拒绝** → 换凭证解决不了，需另配权限。
 - **CF**：RUM 与 zone 边缘数据集可读；Workers Logs / Logpush 未配置（要看 worker 运行日志需另开）；**Workers Analytics Engine 查询未验证**（301 专项写入 `xianmi_301` dataset，查询走 GraphQL `accountTag` 下 `analyticsEngineAdaptiveGroups`，预期同一把 cfut_ 令牌已覆盖，首次用到时补记）。
 - **百度**：无 API，且相关项目不做百度优化。
+- **两种鉴权不可互换（2026-10-02 实测，别浪费时间试）**：
+  - **CrUX 只能 API key**：带 SA token（`openid` 或 `cloud-platform`）请求 → **400 INVALID_ARGUMENT**；SA token + key 参数同时给也 400；**只有 API key 参数**得到 200 ⇒ `crux-api-key.txt` **不可删**。
+  - **PSI 反过来**：SA token（**scope 必须 `openid`**）→ 200，无需 API key；`cloud-platform`/`cloud-platform.read-only`/`userinfo.email` 均 403 `ACCESS_TOKEN_SCOPE_INSUFFICIENT`。
+  - 同项目同一把 SA 可同时用于 GSC / GA4 / PSI；**CrUX 是个例外**（key-only）。
 - **PSI（PageSpeed Insights）**：必须有 API key——**无 key 直连会落到共享默认项目并报 429**（实测 2026-10-02：`project_number:583797351490` 日配额已耗尽）；字段名注意：现场数据在 `loadingExperience`（URL 级，长尾页常缺失）/`originLoadingExperience`（源级，兜底）。
 
 ## 待补数据源（按需，非阻塞）
