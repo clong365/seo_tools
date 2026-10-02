@@ -1,5 +1,5 @@
 import unittest
-from cf import extract_rows, build_query
+from cf import extract_rows, build_query, build_edge_query, extract_edge_rows
 
 
 class TestExtractRows(unittest.TestCase):
@@ -39,6 +39,24 @@ class TestBuildQuery(unittest.TestCase):
     def test_no_dimension(self):
         q = build_query("ACC", "SITE", "s", "e")
         self.assertNotIn("dimensions", q)
+
+
+class TestEdge(unittest.TestCase):
+    def test_build_query(self):
+        q = build_edge_query("ZONE", "2026-09-01", "2026-10-01")
+        self.assertIn('zoneTag: "ZONE"', q)
+        self.assertIn("httpRequestsAdaptiveGroups", q)
+        self.assertIn("edgeResponseStatus", q)
+
+    def test_extract(self):
+        resp = {"data": {"viewer": {"zones": [{"httpRequestsAdaptiveGroups": [
+            {"count": 5, "dimensions": {"date": "2026-10-01", "edgeResponseStatus": 404}},
+            {"count": 9, "dimensions": {"date": "2026-10-01", "edgeResponseStatus": 301}},
+        ]}]}}}
+        self.assertEqual(extract_edge_rows(resp), {"2026-10-01": {404: 5, 301: 9}})
+
+    def test_extract_empty(self):
+        self.assertEqual(extract_edge_rows({"data": {"viewer": {"zones": []}}}), {})
 
 
 if __name__ == "__main__":
