@@ -10,7 +10,7 @@ GSC + Bing + GA4 + CF Web Analytics 收录/表现/流量复查的共享 CLI，�
 - IndexNow：`indexnow.py`（推送，非查询；key 在 `~/.config/seo-tools/indexnow.json`，按 host 配置）——从 xianmi-cn/tools/submit-indexnow.mjs 移植为共享版（2026-10-02），URL 源=线上 sitemap（`--sitemap` 可重复）或 `--file`
 - CF Web Analytics：`.venv/bin/python cf.py --site siteTag`（GraphQL RUM，`viewer.accounts` 下，过滤用 accountTag+siteTag）；`--edge` = zone 级 `httpRequestsAdaptiveGroups` 按日×状态码（xianmi 旧 URL 301 趋势观测，2026-10-02 加）——**默认只统计 `requestSource: "eyeball"`（真实客户端，含爬虫）**，`--all-sources` 才含全部来源（含 `edgeWorkerCacheAPI` 遥测行）
 - CrUX：`.venv/bin/python crux.py [--url 单页] [--form-factor PHONE|DESKTOP]`（真实用户 Core Web Vitals，默认 origin https://www.xianmi.co；key 在 `~/.config/seo-tools/crux-api-key.txt`，GCP 项目 GoogleSearchConsole，API 限制=仅 Chrome UX Report API）
-- PSI：`.venv/bin/python psi.py [--url …] [--strategy mobile|desktop] [--only field|lab]`（PageSpeed Insights：**实验室数据由 Google 侧跑 Lighthouse** + **CrUX 现场数据**，因此不受我们本机代理/异地出口干扰；key 在 `~/.config/seo-tools/psi-api-key.txt`，GCP 项目里启用 PageSpeed Insights API 后创建即可，免费）
+- PSI：`.venv/bin/python psi.py [--url …] [--strategy mobile|desktop] [--only field|lab]`（默认 key=`~/.config/seo-tools/psi-sa.json`）（**鉴权：Service Account JSON 即可，scope 必须是 `openid`**——实测 2026-10-02：`cloud-platform`/`cloud-platform.read-only`/`userinfo.email` 均 403 `ACCESS_TOKEN_SCOPE_INSUFFICIENT`，只有 `openid` 通过；同一把 `gsc-sa.json` 可直接用，**无需另建 API key**。PageSpeed Insights：**实验室数据由 Google 侧跑 Lighthouse** + **CrUX 现场数据**，因此不受我们本机代理/异地出口干扰；key 在 `~/.config/seo-tools/psi-api-key.txt`，GCP 项目里启用 PageSpeed Insights API 后创建即可，免费）
 
 ## 关键约束
 

@@ -23,7 +23,7 @@ import sys
 import requests
 
 API_URL = "https://www.googleapis.com/pagespeedonline/v5/runPagespeed"
-DEFAULT_KEY = "~/.config/seo-tools/psi-api-key.txt"
+DEFAULT_KEY = "~/.config/seo-tools/psi-sa.json"   # 实测可用（SA + scope openid）；也可指向 API key 文本文件
 DEFAULT_URL = "https://www.xianmi.co/"
 TIMEOUT = 120
 
@@ -57,26 +57,63 @@ CATEGORY_RANK = {"FAST": "好", "AVERAGE": "需改进", "SLOW": "差"}
 
 
 def load_key(path):
+    """返回 (mode, value)：mode='sa' 时 value=JSON 路径（用 Bearer token）；mode='apikey' 时 value=密钥串。
+
+    两种都支持：Service Account JSON（本项目已有 `gsc-sa.json`，同一把可用）或普通 API key 文本。
+    """
     p = os.path.expanduser(path)
     if not os.path.exists(p):
         sys.exit(
             f"找不到 key 文件: {p}\n"
-            "在 GCP 项目里启用 PageSpeed Insights API 并创建 API key 后写入该文件。"
+            "在 GCP 项目里启用 PageSpeed Insights API 后：①把 Service Account JSON 放该路径，"
+            "或 ②创建 API key 后把密钥文本写入该文件。两者都可用。"
         )
-    return open(p).read().strip()
+    raw = open(p, encoding="utf-8").read().strip()
+    if raw.startswith("{"):
+        try:
+            doc = json.loads(raw)
+        except Exception as e:
+            sys.exit(f"key 文件不是合法 JSON：{e}")
+        if doc.get("type") == "service_account":
+            return "sa", p
+        sys.exit("JSON key 文件不是 service_account 类型。")
+    return "apikey", raw
+
+
+def sa_token(path):
+    """用 Service Account 换 access token（Bearer）。"""
+    from google.auth.transport.requests import Request
+    from google.oauth2 import service_account
+
+    creds = service_account.Credentials.from_service_account_file(
+        # 实测（2026-10-02）：PSI 用 SA 鉴权时所需 scope 是 openid；cloud-platform 等会 403
+        # （ACCESS_TOKEN_SCOPE_INSUFFICIENT）。openid 即可通。
+        path, scopes=["openid"]
+    )
+    creds.refresh(Request())
+    return creds.token
 
 
 def build_params(url, strategy, categories, key):
     """构造 PSI 查询参数（纯函数，便于单测）。"""
-    params = [("url", url), ("strategy", strategy), ("key", key)]
+    params = [("url", url), ("strategy", strategy)]
+    if key:
+        params.append(("key", key))
     for c in categories or CATEGORIES:
         params.append(("category", c))
     return params
 
 
-def fetch(url, strategy, categories, key):
-    params = build_params(url, strategy, categories, key)
-    r = requests.get(API_URL, params=params, timeout=TIMEOUT)
+def fetch(url, strategy, categories, auth, key=None):
+    """auth=('apikey', k) 走 key= 参数；auth=('sa', path) 走 Authorization: Bearer。"""
+    if auth[0] == "sa":
+        params = build_params(url, strategy, categories, None)
+        params = [(k, v) for k, v in params if k != "key"]
+        headers = {"Authorization": f"Bearer {sa_token(auth[1])}"}
+    else:
+        params = build_params(url, strategy, categories, auth[1])
+        headers = {}
+    r = requests.get(API_URL, params=params, headers=headers, timeout=TIMEOUT)
     if r.status_code != 200:
         try:
             msg = r.json()
@@ -144,8 +181,9 @@ def main():
     ap.add_argument("--json", action="store_true", help="输出原始 JSON（调试用）")
     args = ap.parse_args()
 
-    key = load_key(args.key)
-    data = fetch(args.url, args.strategy, None, key)
+    auth = load_key(args.key)
+    print(f"  （鉴权方式：{'Service Account（Bearer）' if auth[0] == 'sa' else 'API key'}）")
+    data = fetch(args.url, args.strategy, None, auth)
 
     if args.json:
         print(json.dumps(data, ensure_ascii=False, indent=2)[:20000])
