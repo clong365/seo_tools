@@ -1,6 +1,6 @@
 # seo_tools — GSC / Bing / GA4 / CF Web Analytics 复查
 
-tradelink、xianmi 及将来项目共用的 SEO 收录/表现/流量复查脚本。
+多站点共用的 SEO 收录 / 表现 / 流量复查 CLI。
 
 ## 环境（uv）
 
@@ -9,28 +9,62 @@ uv venv
 uv pip install google-auth requests
 ```
 
-## key 配置（放仓库外）
+## 凭证配置（全部放仓库外，绝不进 git）
 
-- GSC service account：`~/.config/seo-tools/google-sa.json`（配置见 `docs/gsc-api-setup.md`）
-- Bing API key：`~/.config/seo-tools/bing-api-key.txt`（配置见 `docs/bing-api-setup.md`）
-- GA4 用同一把 service account：`~/.config/seo-tools/google-sa.json`（配置见 `docs/ga-setup.md`）
-- CF Web Analytics：`~/.config/seo-tools/cf-api-token.txt`（配置见 `docs/cf-setup.md`）
+统一放 `~/.config/seo-tools/`：
+
+| 文件 | 用于 | 说明 |
+|---|---|---|
+| `google-sa.json` | GSC / GA4 / PSI | Service Account JSON，一把通用于三者 |
+| `bing-api-key.txt` | Bing Webmaster | API key |
+| `cf-api-token.txt` | CF Web Analytics | API token（Bearer） |
+| `indexnow.json` | IndexNow | 按 host 配置的推送 key |
+| `crux-api-key.txt` | CrUX | API key（**只能 API key**，SA token 不行） |
+| `sites.json` | 各脚本默认站点 | 见下 |
+
+每个数据源怎么申请、要开哪些 API、scope 给什么，属于部署细节，写在各自项目的内部文档里；本文只讲用法。要点：
+
+- GSC / GA4 / PSI 可共用同一把 service account；**CrUX 是例外，只能 API key**。
+- PSI 用 SA 时 scope 必须是 `openid`（其他 scope 一律 403）。
+- GA4 用 property ID（数字），不是域名；GSC 用站点资源名。
+
+## 站点默认值
+
+脚本不带参数时的默认站点从 `~/.config/seo-tools/sites.json` 读，环境变量可覆盖，都没有则报错：
+
+```json
+{
+  "cf_account": "<CF accountTag>",
+  "cf_site": "<CF siteTag>",
+  "cf_zone": "<CF zoneTag>",
+  "ga_property": "<GA4 property ID>",
+  "origin": "https://www.example.com",
+  "indexnow_host": "www.example.com"
+}
+```
+
+解析顺序：**命令行 flag → 环境变量 → `sites.json` → 报错并提示怎么配**。
+
+对应环境变量：`CF_ACCOUNT` / `CF_SITE` / `CF_ZONE` / `GA_PROPERTY` / `CRUX_ORIGIN` / `PSI_URL`。
 
 ## 用法
 
 ```bash
 .venv/bin/python gsc.py                      # 列出 key 能访问的所有站点
-.venv/bin/python gsc.py --site xianmi.co
-.venv/bin/python bing.py --site tradelink-exp.com
-.venv/bin/python ga.py --property 507549889
-.venv/bin/python cf.py
-.venv/bin/python cf.py --edge           # zone 级边缘请求按日×状态码（301/404 趋势，含无 JS 爬虫）
-.venv/bin/python indexnow.py --site www.xianmi.co --sitemap /sitemap-index.xml --sitemap /zh-tw/sitemap-index.xml  # IndexNow 全量推送
-.venv/bin/python indexnow.py --file urls.txt     # 增量推送（先 --dry-run 预演）
-.venv/bin/python crux.py                 # CrUX 真实用户 Core Web Vitals（--url 单页 / --form-factor PHONE）
+.venv/bin/python gsc.py --site example.com   # 复查某个站点
+.venv/bin/python gsc.py --site example.com --no-inspect   # 只看趋势，跳过 URL Inspection（快很多）
+.venv/bin/python bing.py --site example.com
+.venv/bin/python ga.py                       # 默认 property 来自 sites.json
+.venv/bin/python cf.py                       # CF Web Analytics（RUM）
+.venv/bin/python cf.py --edge                # zone 边缘按日×状态码（301/404 趋势，含无 JS 爬虫）
+.venv/bin/python crux.py                     # CrUX 真实用户 Core Web Vitals
+.venv/bin/python psi.py                      # PSI：实验室 Lighthouse + 现场 CrUX 双口径
+.venv/bin/python indexnow.py --file urls.txt # IndexNow 增量推送（先 --dry-run 预演）
 ```
 
 大陆访问 GSC / GA4 需 `https_proxy` 代理；Bing、CF 直连即可。
+
+⚠️ `gsc.py` **默认会跑最多 50 条 URL Inspection**（每条 sleep 1s + 接口本身慢）→ 单次约 3–5 分钟。只做趋势 / 收录复查时加 `--no-inspect`。
 
 ## 测试
 

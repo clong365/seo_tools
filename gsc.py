@@ -3,7 +3,7 @@
 
 用法:
     .venv/bin/python gsc.py               # 列出 key 能访问的所有站点
-    .venv/bin/python gsc.py --site xianmi.co
+    .venv/bin/python gsc.py --site example.com
 """
 import argparse
 import datetime as dt

@@ -4,14 +4,14 @@ from crux import build_body, classify, density_shares, METRICS
 
 class TestBuildBody(unittest.TestCase):
     def test_origin_default_metrics(self):
-        b = build_body(origin="https://www.xianmi.co")
-        self.assertEqual(b["origin"], "https://www.xianmi.co")
+        b = build_body(origin="https://www.example.com")
+        self.assertEqual(b["origin"], "https://www.example.com")
         self.assertEqual(b["metrics"], list(METRICS))
         self.assertNotIn("url", b)
 
     def test_url_mode(self):
-        b = build_body(url="https://www.xianmi.co/p02/", form_factor="PHONE")
-        self.assertEqual(b["url"], "https://www.xianmi.co/p02/")
+        b = build_body(url="https://www.example.com/p02/", form_factor="PHONE")
+        self.assertEqual(b["url"], "https://www.example.com/p02/")
         self.assertEqual(b["formFactor"], "PHONE")
         self.assertNotIn("origin", b)
 

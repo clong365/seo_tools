@@ -2,7 +2,7 @@
 """Bing Webmaster 收录/表现复查 — API key 只读（共享版）。
 
 用法:
-    .venv/bin/python bing.py --site tradelink-exp.com
+    .venv/bin/python bing.py --site example.org
 """
 import argparse
 import datetime as dt
@@ -106,7 +106,7 @@ def keyword_stats(key, site):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--key", default=os.environ.get("BING_API_KEY", DEFAULT_KEY))
-    ap.add_argument("--site", required=True, help="裸域名，如 tradelink-exp.com")
+    ap.add_argument("--site", required=True, help="裸域名，如 example.org")
     ap.add_argument("--days", type=int, default=28)
     args = ap.parse_args()
 

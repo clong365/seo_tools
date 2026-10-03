@@ -11,7 +11,7 @@ class TestParseMsdate(unittest.TestCase):
 
 class TestNormalizeSite(unittest.TestCase):
     def test_url(self):
-        self.assertEqual(bing.normalize_site("https://xianmi.co/"), "xianmi.co")
+        self.assertEqual(bing.normalize_site("https://example.com/"), "example.com")
 
 
 class TestCallSanitization(unittest.TestCase):

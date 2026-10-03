@@ -13,21 +13,21 @@ from gsc import (
 
 class TestNormalizeSite(unittest.TestCase):
     def test_bare(self):
-        self.assertEqual(normalize_site("xianmi.co"), "xianmi.co")
+        self.assertEqual(normalize_site("example.com"), "example.com")
     def test_full_url(self):
-        self.assertEqual(normalize_site("https://xianmi.co/"), "xianmi.co")
+        self.assertEqual(normalize_site("https://example.com/"), "example.com")
     def test_path_and_query(self):
-        self.assertEqual(normalize_site("https://xianmi.co/en/?x=1"), "xianmi.co")
+        self.assertEqual(normalize_site("https://example.com/en/?x=1"), "example.com")
     def test_www_preserved(self):
-        self.assertEqual(normalize_site("https://www.xianmi.co/"), "www.xianmi.co")
+        self.assertEqual(normalize_site("https://www.example.com/"), "www.example.com")
 
 
 class TestPickSite(unittest.TestCase):
-    SITES = ["sc-domain:tradelink-exp.com", "https://xianmi.co/", "https://www.foo.com/"]
+    SITES = ["sc-domain:example.org", "https://example.com/", "https://www.foo.com/"]
     def test_sc_domain(self):
-        self.assertEqual(pick_site(self.SITES, "tradelink-exp.com"), "sc-domain:tradelink-exp.com")
+        self.assertEqual(pick_site(self.SITES, "example.org"), "sc-domain:example.org")
     def test_url_prefix(self):
-        self.assertEqual(pick_site(self.SITES, "xianmi.co"), "https://xianmi.co/")
+        self.assertEqual(pick_site(self.SITES, "example.com"), "https://example.com/")
     def test_www_exact(self):
         self.assertEqual(pick_site(self.SITES, "www.foo.com"), "https://www.foo.com/")
     def test_www_variant(self):
@@ -69,7 +69,7 @@ class TestIsPublicHttpUrl(unittest.TestCase):
     @mock.patch("socket.getaddrinfo")
     def test_domain_public_ok(self, dns):
         dns.return_value = [(2, 1, 6, "", ("1.2.3.4", 0))]
-        self.assertTrue(_is_public_http_url("https://xianmi.co/sitemap-0.xml"))
+        self.assertTrue(_is_public_http_url("https://example.com/sitemap-0.xml"))
 
     @mock.patch("socket.getaddrinfo")
     def test_domain_private_rejected(self, dns):
