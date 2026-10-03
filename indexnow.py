@@ -70,15 +70,54 @@ def make_payload(host, key, batch):
 
 
 def push(host, key, urls, dry_run):
+    """推送并返回每批结果 [{batch, ok, detail}, ...]。
+
+    单批失败**不中断**剩余批次（逐批独立、可重复提交、无副作用），
+    但**绝不安静地少发**：每批记录结果，末尾由 summarize() 汇总，
+    任一批失败则 exit_code() 给非零——保持响亮失败，别让 CI/cron 当成功。
+
+    ⚠️ 两种失败路径不同，别混：
+      - **HTTP 非 2xx**：requests.post 正常返回，按 status_code 判失败。
+        （历史：旧实现根本不看 status code、只打印，所以 500 从来不会中断循环。）
+      - **requests.post 抛异常**：网络层错误。旧实现会直接中断循环、
+        导致只推第 1 批——这才是要防的路径，现捕获后记为失败并继续。
+    """
     total = (len(urls) + BATCH - 1) // BATCH
+    results = []
     for i in range(0, len(urls), BATCH):
         batch = urls[i:i + BATCH]
         n = i // BATCH + 1
         if dry_run:
             print(f"  批次 {n}/{total}（{len(batch)} 个）: dry-run 跳过")
             continue
-        r = requests.post(API_URL, json=make_payload(host, key, batch), timeout=TIMEOUT)
-        print(f"  批次 {n}/{total}（{len(batch)} 个）: HTTP {r.status_code}")
+        try:
+            r = requests.post(API_URL, json=make_payload(host, key, batch), timeout=TIMEOUT)
+            ok = r.ok
+            detail = f"HTTP {r.status_code}"
+        except Exception as ex:
+            ok = False
+            detail = f"{type(ex).__name__}: {ex}"
+        results.append({"batch": n, "ok": ok, "detail": detail})
+        print(f"  批次 {n}/{total}（{len(batch)} 个）: {detail}{'' if ok else ' ✗'}")
+    return results
+
+
+def summarize(results):
+    """汇总字符串：总批数 / 成功 / 失败，失败逐条列出批号与原因。"""
+    if not results:
+        return "  汇总：无批次（dry-run，未发送）"
+    ok = [r for r in results if r["ok"]]
+    bad = [r for r in results if not r["ok"]]
+    lines = [f"  汇总：共 {len(results)} 批 | 成功 {len(ok)} | 失败 {len(bad)}"]
+    if bad:
+        lines.append("  失败批次：")
+        lines.extend(f"    批次 {r['batch']}: {r['detail']}" for r in bad)
+    return "\n".join(lines)
+
+
+def exit_code(results):
+    """任一批失败 → 1；全部成功或无批次 → 0。"""
+    return 1 if any(not r["ok"] for r in results) else 0
 
 
 def main():
@@ -106,7 +145,10 @@ def main():
         sys.exit("没有可推送的 URL。")
 
     print(f"推送 {len(urls)} 个 URL（{site}）…")
-    push(site, key, urls, args.dry_run)
+    results = push(site, key, urls, args.dry_run)
+    print(summarize(results))
+    if exit_code(results):
+        sys.exit("推送未全部成功：见上方失败批次汇总。")
 
 
 if __name__ == "__main__":
