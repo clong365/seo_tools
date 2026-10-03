@@ -3,7 +3,7 @@ from unittest import mock
 
 import requests
 
-from indexnow import make_payload, push, BATCH
+from indexnow import make_payload, push, summarize, exit_code, BATCH
 
 
 class TestPayload(unittest.TestCase):
@@ -69,12 +69,89 @@ class TestPush(unittest.TestCase):
         post.assert_not_called()
 
     @mock.patch("indexnow.requests.post")
-    def test_non_200_still_reports_and_continues(self, post):
+    def test_http_non_2xx_recorded_as_failure_but_does_not_abort(self, post):
+        """HTTP 非 2xx：不中断，但必须记为失败。
+
+        ⚠️ 分清两种失败路径，别以为「500 已被保护」：
+          - **HTTP 非 2xx**：requests.post 正常返回。旧实现**根本不看 status code**
+            （只打印），所以 500 从来不会中断循环——这条断言原本就成立，不是本次的防护点。
+          - **requests.post 抛异常**（网络错误）：旧实现**会直接中断循环**，
+            才是本次要防的路径，见 test_request_exception_*。
+        """
         post.return_value = self._resp(500)
         n = BATCH + 1                           # 2 批
         urls = [f"https://www.example.com/p{i}/" for i in range(n)]
-        push("www.example.com", "a" * 32, urls, dry_run=False)
-        self.assertEqual(post.call_count, 2)    # 单批失败不吞掉后续批次
+        results = push("www.example.com", "a" * 32, urls, dry_run=False)
+        self.assertEqual(post.call_count, 2)                    # 不吞后续批次
+        self.assertEqual([r["ok"] for r in results], [False, False])
+        self.assertIn("500", results[0]["detail"])
+
+    @mock.patch("indexnow.requests.post")
+    def test_request_exception_does_not_abort(self, post):
+        """网络异常不得吞掉后续批次——这才是本次事故的同款形态。"""
+        post.side_effect = [ConnectionError("boom"),
+                            self._resp(200), self._resp(200)]
+        n = BATCH * 2 + 1                       # 3 批
+        urls = [f"https://www.example.com/p{i}/" for i in range(n)]
+        results = push("www.example.com", "a" * 32, urls, dry_run=False)
+        self.assertEqual(post.call_count, 3)                    # 3 批都尝试了
+        self.assertEqual(len(results), 3)
+        self.assertFalse(results[0]["ok"])
+        self.assertIn("ConnectionError", results[0]["detail"])  # 记异常类型
+        self.assertTrue(results[1]["ok"])
+        self.assertTrue(results[2]["ok"])
+
+    @mock.patch("indexnow.requests.post")
+    def test_each_batch_records_result(self, post):
+        post.side_effect = [self._resp(200), self._resp(503)]
+        n = BATCH + 1
+        urls = [f"https://www.example.com/p{i}/" for i in range(n)]
+        results = push("www.example.com", "a" * 32, urls, dry_run=False)
+        self.assertEqual([r["batch"] for r in results], [1, 2])
+        self.assertEqual([r["ok"] for r in results], [True, False])
+        self.assertEqual(results[0]["detail"], "HTTP 200")
+        self.assertIn("503", results[1]["detail"])
+
+    @mock.patch("indexnow.requests.post")
+    def test_dry_run_returns_no_results(self, post):
+        urls = [f"https://www.example.com/p{i}/" for i in range(BATCH + 5)]
+        self.assertEqual(push("www.example.com", "a" * 32, urls, dry_run=True), [])
+
+
+class TestSummaryAndExit(unittest.TestCase):
+    """汇总与退出码：绝不允许「安静地少发」。"""
+
+    def test_summary_reports_totals_and_failure_detail(self):
+        results = [
+            {"batch": 1, "ok": True, "detail": "HTTP 200"},
+            {"batch": 2, "ok": False, "detail": "ConnectionError: boom"},
+            {"batch": 3, "ok": False, "detail": "HTTP 503"},
+        ]
+        text = summarize(results)
+        self.assertIn("3", text)                 # 总批数
+        self.assertIn("1", text)                 # 成功数
+        self.assertIn("2", text)                 # 失败数
+        self.assertIn("批次 2", text)            # 失败批次号
+        self.assertIn("ConnectionError", text)   # 失败原因
+
+    def test_summary_all_ok(self):
+        results = [{"batch": 1, "ok": True, "detail": "HTTP 200"}]
+        text = summarize(results)
+        self.assertIn("成功", text)
+        self.assertNotIn("失败批次", text)
+
+    def test_exit_zero_when_all_ok(self):
+        self.assertEqual(exit_code([{"batch": 1, "ok": True, "detail": "HTTP 200"}]), 0)
+
+    def test_exit_nonzero_when_any_failure(self):
+        """任一批失败必须非零退出——否则 CI/cron 会当成成功。"""
+        self.assertEqual(exit_code([
+            {"batch": 1, "ok": True, "detail": "HTTP 200"},
+            {"batch": 2, "ok": False, "detail": "HTTP 503"},
+        ]), 1)
+
+    def test_exit_zero_for_empty(self):
+        self.assertEqual(exit_code([]), 0)       # dry-run 不该被算作失败
 
 
 
