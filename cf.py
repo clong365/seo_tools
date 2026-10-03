@@ -2,7 +2,9 @@
 """Cloudflare Web Analytics 流量复查 — GraphQL（RUM）只读（共享版）。
 
 用法:
-    .venv/bin/python cf.py --site 406eb07464064ef680745db6a060efba
+    .venv/bin/python cf.py                  # 站点取自 sites.json
+    .venv/bin/python cf.py --site <siteTag>
+    .venv/bin/python cf.py --edge           # 需 cf_zone
 """
 import argparse
 import datetime as dt
@@ -11,11 +13,10 @@ import sys
 
 import requests
 
+import config
+
 GRAPHQL_URL = "https://api.cloudflare.com/client/v4/graphql"
 DEFAULT_KEY = "~/.config/seo-tools/cf-api-token.txt"
-DEFAULT_ACCOUNT = "397a5866d88bb11a4f17b710d74f30c8"
-DEFAULT_SITE = "406eb07464064ef680745db6a060efba"  # xianmi.co
-DEFAULT_ZONE = "35ff812beaa004cd12cd62ff30383fe1"  # xianmi.co zone ID
 TIMEOUT = 30
 
 
@@ -142,15 +143,15 @@ def print_block(title, resp, dim):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--key", default=os.environ.get("CF_API_TOKEN", DEFAULT_KEY))
-    ap.add_argument("--account", default=os.environ.get("CF_ACCOUNT", DEFAULT_ACCOUNT))
-    ap.add_argument("--site", default=os.environ.get("CF_SITE", DEFAULT_SITE))
+    ap.add_argument("--account", default=None, help="CF accountTag（默认读 sites.json）")
+    ap.add_argument("--site", default=None, help="CF siteTag（默认读 sites.json）")
     ap.add_argument("--days", type=int, default=28)
     ap.add_argument("--limit", type=int, default=20)
     ap.add_argument("--edge", action="store_true",
                     help="zone 级边缘请求按日×状态码（301/404 趋势，含无 JS 爬虫）")
     ap.add_argument("--all-sources", action="store_true",
                     help="--edge 时不过滤 requestSource（含 edgeWorkerCacheAPI 遥测行；默认只统计 eyeball）")
-    ap.add_argument("--zone", default=os.environ.get("CF_ZONE", DEFAULT_ZONE))
+    ap.add_argument("--zone", default=None, help="CF zone ID，--edge 用（默认读 sites.json）")
     args = ap.parse_args()
 
     key_path = os.path.expanduser(args.key)
@@ -160,23 +161,27 @@ def main():
     token = open(key_path).read().strip()
 
     if args.edge:
+        zone = config.require("cf_zone", "CF_ZONE", args.zone)
         end_d = dt.date.today() - dt.timedelta(days=1)
         start_d = end_d - dt.timedelta(days=args.days - 1)
         scope = "全部来源（含 Cache API 遥测）" if args.all_sources else "仅 eyeball（真实客户端）"
-        print(f"=== CF 边缘请求（{start_d} ~ {end_d}，zone {args.zone}，{scope}）===")
+        print(f"=== CF 边缘请求（{start_d} ~ {end_d}，zone {zone}，{scope}）===")
         try:
             resp = run_query(token, build_edge_query(
-                args.zone, start_d.isoformat(), end_d.isoformat(), eyeball=not args.all_sources))
+                zone, start_d.isoformat(), end_d.isoformat(), eyeball=not args.all_sources))
             print_edge(resp)
         except Exception as ex:
             print(f"  边缘查询失败: {ex}")
         return
 
+    account = config.require("cf_account", "CF_ACCOUNT", args.account)
+    site = config.require("cf_site", "CF_SITE", args.site)
+
     start, end = date_range(args.days)
-    print(f"=== CF Web Analytics（近 {args.days} 天，site {args.site}）===")
+    print(f"=== CF Web Analytics（近 {args.days} 天，site {site}）===")
 
     try:
-        resp = run_query(token, build_query(args.account, args.site, start, end))
+        resp = run_query(token, build_query(account, site, start, end))
         rows = extract_rows(resp)
         print_block("总览", resp, None)
         if rows:
@@ -188,7 +193,7 @@ def main():
 
     for dim, label in [("countryName", "按国家"), ("requestPath", "按页面"), ("deviceType", "按设备")]:
         try:
-            resp = run_query(token, build_query(args.account, args.site, start, end, dim))
+            resp = run_query(token, build_query(account, site, start, end, dim))
             print_block(label, resp, dim)
         except Exception as ex:
             print(f"  {label}失败: {ex}")

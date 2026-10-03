@@ -1,4 +1,19 @@
+# 运行时 / 构建
 .venv/
 __pycache__/
 *.pyc
+.remember/
 .superpowers/
+
+# 凭证与密钥 —— 绝不进 git（真实凭证在 ~/.config/seo-tools/，仓库外）
+*.pem
+*.key
+*.p12
+*.pfx
+.env
+.env.*
+*-sa.json
+*credentials*.json
+*token*.txt
+*api-key*.txt
+sites.json

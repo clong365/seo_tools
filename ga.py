@@ -2,7 +2,8 @@
 """GA4 流量复查 — service account 只读（共享版）。
 
 用法:
-    .venv/bin/python ga.py --property 507549889
+    .venv/bin/python ga.py                       # 属性取自 sites.json
+    .venv/bin/python ga.py --property <属性ID>
 """
 import argparse
 import os
@@ -10,10 +11,11 @@ import sys
 
 import requests
 
+import config
+
 SCOPES = ["https://www.googleapis.com/auth/analytics.readonly"]
 DEFAULT_KEY = "~/.config/seo-tools/google-sa.json"
 BASE = "https://analyticsdata.googleapis.com/v1beta"
-DEFAULT_PROPERTY = "507549889"  # goodweb（xianmi）
 TIMEOUT = 30
 
 
@@ -68,10 +70,12 @@ def print_block(title, resp):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--key", default=os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", DEFAULT_KEY))
-    ap.add_argument("--property", default=os.environ.get("GA_PROPERTY", DEFAULT_PROPERTY))
+    ap.add_argument("--property", default=None, help="GA4 属性 ID（默认读 sites.json）")
     ap.add_argument("--days", type=int, default=28)
     ap.add_argument("--limit", type=int, default=20)
     args = ap.parse_args()
+
+    property_id = config.require("ga_property", "GA_PROPERTY", args.property)
 
     key_path = os.path.expanduser(args.key)
     if not os.path.exists(key_path):
@@ -86,16 +90,16 @@ def main():
         return  # 防测试 mock sys.exit 后继续
 
     metrics = ["activeUsers", "sessions", "screenPageViews"]
-    print(f"=== GA4 property {args.property}（近 {args.days} 天）===")
+    print(f"=== GA4 property {property_id}（近 {args.days} 天）===")
 
     try:
-        print_block("总览", run_report(token, args.property, metrics, days=args.days))
+        print_block("总览", run_report(token, property_id, metrics, days=args.days))
     except Exception as ex:
         print(f"  总览失败: {ex}")
 
     for dim, label in [("country", "按国家"), ("pagePath", "按页面"), ("language", "按语言")]:
         try:
-            print_block(label, run_report(token, args.property, metrics,
+            print_block(label, run_report(token, property_id, metrics,
                                           dimensions=[dim], days=args.days, limit=args.limit))
         except Exception as ex:
             print(f"  {label}失败: {ex}")

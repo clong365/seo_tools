@@ -2,9 +2,9 @@
 """IndexNow 主动推送（共享版）— 把站点 URL 推送给 Bing 等支持 IndexNow 的引擎。
 
 用法:
-    .venv/bin/python indexnow.py --site www.xianmi.co                 # 拉线上 sitemap 全量推送
-    .venv/bin/python indexnow.py --site www.xianmi.co --file urls.txt # 只推文件里的 URL（日常更新）
-    .venv/bin/python indexnow.py --site www.xianmi.co --dry-run       # 只统计不推送
+    .venv/bin/python indexnow.py --site www.example.com                 # 拉线上 sitemap 全量推送
+    .venv/bin/python indexnow.py --site www.example.com --file urls.txt # 只推文件里的 URL（日常更新）
+    .venv/bin/python indexnow.py --site www.example.com --dry-run       # 只统计不推送
 
 站点 key 配置在 ~/.config/seo-tools/indexnow.json（{"host": "32位hex key"}）。
 key 按 IndexNow 协议本就公开（托管在 https://<host>/<key>.txt 验证归属），但仍按约定不进 git。
@@ -16,6 +16,8 @@ import re
 import sys
 
 import requests
+
+import config
 
 API_URL = "https://api.indexnow.org/indexnow"
 DEFAULT_CONF = "~/.config/seo-tools/indexnow.json"
@@ -81,29 +83,30 @@ def push(host, key, urls, dry_run):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--site", default="www.xianmi.co", help="host，须存在于 indexnow.json")
+    ap.add_argument("--site", default=None, help="host，须存在于 indexnow.json（默认读 sites.json）")
     ap.add_argument("--conf", default=os.environ.get("INDEXNOW_CONF", DEFAULT_CONF))
     ap.add_argument("--file", help="只推文件里列出的 URL（每行一个）")
     ap.add_argument("--sitemap", action="append", dest="sitemaps",
                     help="sitemap index 路径，可重复；默认 /sitemap-index.xml。"
-                         "xianmi 双站全量: --sitemap /sitemap-index.xml --sitemap /zh-tw/sitemap-index.xml")
+                         "双语站全量: --sitemap /sitemap-index.xml --sitemap /zh-tw/sitemap-index.xml")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
-    key = load_key(args.conf, args.site)
+    site = config.require("indexnow_host", "INDEXNOW_HOST", args.site)
+    key = load_key(args.conf, site)
 
     if args.file:
         urls = [u.strip() for u in open(args.file) if u.strip()]
         print(f"从 {args.file} 读入 {len(urls)} 个 URL")
     else:
         paths = args.sitemaps or ["/sitemap-index.xml"]
-        print(f"拉取 {args.site} 的 sitemap…")
-        urls = fetch_sitemap_urls(args.site, paths)
+        print(f"拉取 {site} 的 sitemap…")
+        urls = fetch_sitemap_urls(site, paths)
     if not urls:
         sys.exit("没有可推送的 URL。")
 
-    print(f"推送 {len(urls)} 个 URL（{args.site}）…")
-    push(args.site, key, urls, args.dry_run)
+    print(f"推送 {len(urls)} 个 URL（{site}）…")
+    push(site, key, urls, args.dry_run)
 
 
 if __name__ == "__main__":

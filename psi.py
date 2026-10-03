@@ -8,8 +8,8 @@
     Lighthouse，并同时返回 CrUX **现场数据**，因此不受我们本机网络干扰。
 
 用法:
-    .venv/bin/python psi.py                                  # 默认 https://www.xianmi.co/
-    .venv/bin/python psi.py --url https://www.xianmi.co/p01/a/109/ --strategy mobile
+    .venv/bin/python psi.py                                  # URL 取自 sites.json
+    .venv/bin/python psi.py --url https://www.example.com/page/ --strategy mobile
     .venv/bin/python psi.py --only field                     # 只看 CrUX 现场数据
     .venv/bin/python psi.py --only lab --strategy desktop
 key 放 ~/.config/seo-tools/psi-api-key.txt（普通 API key，非 service account）。
@@ -22,9 +22,10 @@ import sys
 
 import requests
 
+import config
+
 API_URL = "https://www.googleapis.com/pagespeedonline/v5/runPagespeed"
 DEFAULT_KEY = "~/.config/seo-tools/google-sa.json"   # 同一把 SA 通用于 GSC/GA4/PSI（实测 PSI 需 scope openid）；也可指向 API key 文本文件
-DEFAULT_URL = "https://www.xianmi.co/"
 TIMEOUT = 120
 
 # Lighthouse 分类（分数 0–1）→ 中文标签
@@ -68,7 +69,8 @@ def load_key(path):
             "在 GCP 项目里启用 PageSpeed Insights API 后：①把 Service Account JSON 放该路径，"
             "或 ②创建 API key 后把密钥文本写入该文件。两者都可用。"
         )
-    raw = open(p, encoding="utf-8").read().strip()
+    with open(p, encoding="utf-8") as fh:
+        raw = fh.read().strip()
     if raw.startswith("{"):
         try:
             doc = json.loads(raw)
@@ -175,21 +177,23 @@ def show_lab(data):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--key", default=os.environ.get("PSI_API_KEY", DEFAULT_KEY))
-    ap.add_argument("--url", default=DEFAULT_URL)
+    ap.add_argument("--url", default=None, help="被测 URL（默认读 sites.json 的 origin）")
     ap.add_argument("--strategy", default="mobile", choices=["mobile", "desktop"])
     ap.add_argument("--only", choices=["field", "lab"], help="只看现场或只看实验室")
     ap.add_argument("--json", action="store_true", help="输出原始 JSON（调试用）")
     args = ap.parse_args()
 
+    url = config.require("origin", "PSI_URL", args.url)
+
     auth = load_key(args.key)
     print(f"  （鉴权方式：{'Service Account（Bearer）' if auth[0] == 'sa' else 'API key'}）")
-    data = fetch(args.url, args.strategy, None, auth)
+    data = fetch(url, args.strategy, None, auth)
 
     if args.json:
         print(json.dumps(data, ensure_ascii=False, indent=2)[:20000])
         return 0
 
-    print(f"=== PSI · {args.url} · {args.strategy} ===")
+    print(f"=== PSI · {url} · {args.strategy} ===")
     if args.only != "lab":
         show_field(data)
     if args.only != "field":

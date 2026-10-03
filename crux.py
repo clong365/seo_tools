@@ -4,8 +4,9 @@
 数据来自选择加入统计的 Chrome 用户，按 origin 或单 URL 给 p75 与好/需改进/差分布。
 
 用法:
-    .venv/bin/python crux.py                                  # 默认 origin https://www.xianmi.co
-    .venv/bin/python crux.py --url https://www.xianmi.co/p02/
+    .venv/bin/python crux.py                      # origin 取自 sites.json
+    .venv/bin/python crux.py --origin https://www.example.com
+    .venv/bin/python crux.py --url https://www.example.com/page/
     .venv/bin/python crux.py --form-factor PHONE
 key 放 ~/.config/seo-tools/crux-api-key.txt（普通 API key，非 service account）。
 """
@@ -15,9 +16,10 @@ import sys
 
 import requests
 
+import config
+
 API_URL = "https://chromeuxreport.googleapis.com/v1/records:queryRecord"
 DEFAULT_KEY = "~/.config/seo-tools/crux-api-key.txt"
-DEFAULT_ORIGIN = "https://www.xianmi.co"
 TIMEOUT = 30
 
 # 指标 → (阈值 good 上限, 阈值 NI 上限, 单位, 说明)；CLS 无单位
@@ -103,15 +105,17 @@ def print_record(key_desc, record):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--key", default=os.environ.get("CRUX_API_KEY", DEFAULT_KEY))
-    ap.add_argument("--origin", default=DEFAULT_ORIGIN)
+    ap.add_argument("--origin", default=None, help="站点 origin（默认读 sites.json）")
     ap.add_argument("--url", help="查单页而非 origin（互斥，优先 url）")
     ap.add_argument("--form-factor", choices=["PHONE", "DESKTOP", "TABLET"], help="不传=全部设备汇总")
     args = ap.parse_args()
 
     key = load_key(args.key)
-    body = build_body(origin=None if args.url else args.origin, url=args.url,
+    # --url 优先；只有查 origin 时才需要 origin 取值
+    origin = args.url or config.require("origin", "CRUX_ORIGIN", args.origin)
+    body = build_body(origin=None if args.url else origin, url=args.url,
                       form_factor=args.form_factor)
-    desc = args.url or args.origin
+    desc = args.url or origin
     if args.form_factor:
         desc += f"（{args.form_factor}）"
 
