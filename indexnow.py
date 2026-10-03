@@ -78,7 +78,7 @@ def push(host, key, urls, dry_run):
             print(f"  批次 {n}/{total}（{len(batch)} 个）: dry-run 跳过")
             continue
         r = requests.post(API_URL, json=make_payload(host, key, batch), timeout=TIMEOUT)
-        print(f"  批次 {n}/{total}（{len(batch)} 个）: HTTP {r.status}")
+        print(f"  批次 {n}/{total}（{len(batch)} 个）: HTTP {r.status_code}")
 
 
 def main():
