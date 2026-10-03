@@ -6,7 +6,7 @@ GSC + Bing + GA4 + CF Web Analytics + CrUX + PSI 收录/表现/流量/性能复�
 
 ## 运行
 
-- GSC：`.venv/bin/python gsc.py [--site 域名] [--no-inspect]`（不传 --site 列所有可访问站点）。⚠️ **默认会跑最多 50 条 URL Inspection（`--inspect-limit`，每条 sleep 1s + 接口本身慢）→ 单次约 3–5 分钟**；只做趋势/收录复查时**加 `--no-inspect`**（实测 7 秒完成）。2026-10-02 实测：不加时 200s 超时仍无输出，易被误判为"卡死/凭证坏了"——**不是**，凭证与接口都是好的。
+- GSC：`.venv/bin/python gsc.py [--site 域名] [--no-inspect] [--compare] [--cannibalization]`（不传 --site 列所有可访问站点）。⚠️ **默认会跑最多 50 条 URL Inspection（`--inspect-limit`，每条 sleep 1s + 接口本身慢）→ 单次约 3–5 分钟**；只做趋势/收录复查时**加 `--no-inspect`**（实测 7 秒完成）。2026-10-02 实测：不加时 200s 超时仍无输出，易被误判为"卡死/凭证坏了"——**不是**，凭证与接口都是好的。
 - Bing：`.venv/bin/python bing.py --site 域名`
 - GA4：`.venv/bin/python ga.py [--property 属性ID]`（账号 ID ≠ 属性 ID，`runReport` 用属性 ID）
 - IndexNow：`indexnow.py`（推送，非查询；key 在 `~/.config/seo-tools/indexnow.json`，按 host 配置）——从某站点项目的 submit-indexnow.mjs 移植为共享版（2026-10-02），URL 源=线上 sitemap（`--sitemap` 可重复）或 `--file`
@@ -23,6 +23,34 @@ GSC + Bing + GA4 + CF Web Analytics + CrUX + PSI 收录/表现/流量/性能复�
 ```
 
 环境变量：`CF_ACCOUNT` / `CF_SITE` / `CF_ZONE` / `GA_PROPERTY` / `CRUX_ORIGIN` / `PSI_URL`。
+
+## GSC 查询成本（2026-10-03 加 --compare / --cannibalization 时定的约束）
+
+Google Search Analytics 的**负载**（load quota）不是按次数算，是按查询开销算。官方文档：
+
+> *"Queries grouped/filtered by page AND query string are the most expensive."*
+> *"Query load increases with the date range queried."*
+
+**成本分档**（从便宜到贵）：
+
+| 查询 | 维度 | 成本 | 用在哪 |
+|---|---|---|---|
+| 汇总 | 无 | 最低 | `search_analytics` 总览 |
+| 单维 | `page` 或 `query` 或 `country` | 低 | top 页面/国家、**`--compare`** |
+| **双维** | **`query` + `page`** | **最贵** | **`--cannibalization`** |
+
+由此定的规矩：
+
+- **`--compare` 用两次单维查询 + 本地 join**，不碰双维分组，因此可以常开。
+- **`--cannibalization` 默认关闭**（`action="store_true"`，不传就不查）。要做同词多页分析才开。
+- 双维查询的日期范围**别给大**（默认 28 天），`row_limit` 控住（现 5000）。
+- **跑完缓存结果复用**，别当每次复查的默认开销。
+- 超限报 `quota exceeded`：短周期（10 分钟）等 15 分钟重试；长周期（1 天）只能摊到全天。
+  详见 [Usage Limits](https://developers.google.com/webmaster-tools/limits)。
+
+**判读陷阱**：同一页的尾斜杠变体（`/a/1` 与 `/a/1/`）在 GSC 里是两行，
+不归并会把 canonical 问题误报成关键词竞争。`find_cannibalization()` 已按
+`normalize_page()` 归并，但仍保留 `variants` 列出原 URL——「一页多 URL」本身要单独看。
 
 ## 关键约束
 
