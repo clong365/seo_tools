@@ -167,21 +167,122 @@ def sitemaps_report(token, site):
         print(f"  sitemap 读取失败: {ex}")
 
 
+def period_ranges(days, today=None):
+    """当前期与基线期（紧邻的等长前一段）→ (cur_start, cur_end, base_start, base_end)。
+
+    当前期截止 3 天前：GSC 最近几天数据不全，取了也是空的。
+    """
+    today = today or dt.date.today()
+    end = today - dt.timedelta(days=3)
+    start = end - dt.timedelta(days=days - 1)
+    base_end = start - dt.timedelta(days=1)
+    base_start = base_end - dt.timedelta(days=days - 1)
+    return start, end, base_start, base_end
+
+
+def diff_rows(cur_rows, base_rows, key_index=0):
+    """两期 GSC 行按维度键 join，算变化量。
+
+    只在一期出现的键也保留：新增页 d 为正、消失页 d 为负。
+    返回按 d_clicks 降序。
+    """
+    def key_of(row):
+        return row.get("keys", [""])[key_index]
+
+    cur = {key_of(r): r for r in cur_rows}
+    base = {key_of(r): r for r in base_rows}
+    out = []
+    for k in cur.keys() | base.keys():
+        c, b = cur.get(k), base.get(k)
+        cm = c or {"clicks": 0, "impressions": 0, "position": 0}
+        bm = b or {"clicks": 0, "impressions": 0, "position": 0}
+        out.append({
+            "key": k,
+            "cur": c,
+            "base": b,
+            "d_clicks": cm.get("clicks", 0) - bm.get("clicks", 0),
+            "d_impressions": cm.get("impressions", 0) - bm.get("impressions", 0),
+            "d_position": cm.get("position", 0) - bm.get("position", 0),
+        })
+    out.sort(key=lambda r: r["d_clicks"], reverse=True)
+    return out
+
+
+def normalize_page(url):
+    """去尾斜杠，让 /a/18077 与 /a/18077/ 视为同一页。
+
+    只做这一项规范化：够用且不误伤（大小写、查询串、语言前缀都可能是不同内容，
+    不能一并归并——/zh-tw/ 前缀是另一篇，属真竞争）。
+    """
+    u = (url or "").rstrip("/")
+    return u or "/"
+
+
+def find_cannibalization(rows, min_impressions=10):
+    """从 dimensions=["query","page"] 的行里找「同词多页」竞争。
+
+    ⚠️ **这是 GSC Search Analytics 里最贵的一档查询**。官方文档原话：
+    "Queries grouped/filtered by page AND query string are the most expensive."
+    且查询负载随日期范围变长而增加。所以 --cannibalization **默认关闭**，
+    只在显式指定时才跑，跑完缓存结果复用，别当每次复查的默认开销。
+
+    ⚠️ 页身份用 normalize_page() 归一：**尾斜杠变体是同一页**，不能算竞争
+    （实测站点上 /p02/a/835/18077 与 /p02/a/835/18077/ 同词分列两行，
+    不归并会输出大量假阳性）。归并后仍在 variants 里保留原 URL——
+    「同一页有多个 URL 变体」本身是 canonical 问题，值得单独看。
+
+    只保留有实质曝光（>= min_impressions）的页面；leading = 点击最多的页。
+    「领先页变化」需再跑一次同样的双维查询做两期对比，成本翻倍，故不做。
+    """
+    by_query = {}
+    for r in rows:
+        keys = r.get("keys", [])
+        if len(keys) < 2:
+            continue
+        q, raw = keys[0], keys[1]
+        imp = r.get("impressions", 0)
+        if imp < min_impressions:
+            continue
+        by_query.setdefault(q, {}).setdefault(normalize_page(raw), []).append(
+            (raw, r.get("clicks", 0), imp, r.get("position", 0)))
+
+    out = []
+    for q, pages in by_query.items():
+        if len(pages) < 2:
+            continue
+        entries = []
+        for norm, variants in pages.items():
+            clicks = sum(v[1] for v in variants)
+            imps = sum(v[2] for v in variants)
+            pos = (sum(v[3] * v[2] for v in variants) / imps) if imps else 0.0
+            entries.append({"page": norm, "variants": variants,
+                            "clicks": clicks, "impressions": imps, "position": pos})
+        entries.sort(key=lambda e: e["clicks"], reverse=True)
+        out.append({"query": q, "pages": entries, "leading": entries[0]["page"]})
+    out.sort(key=lambda o: -sum(p["impressions"] for p in o["pages"]))
+    return out
+
+
+def query_analytics(token, site, start, end, dimensions=None, row_limit=100):
+    """查 Search Analytics。start/end 传 ISO 日期字符串；dimensions 为 None 时取汇总。"""
+    body = {"startDate": start, "endDate": end}
+    if dimensions:
+        body["dimensions"] = dimensions
+        body["rowLimit"] = row_limit
+    url = ANALYTICS_URL.format(site=quote(site, safe=""))
+    r = api(token, "POST", url, json=body)
+    r.raise_for_status()
+    return r.json()
+
+
 def search_analytics(token, site, days):
     end = dt.date.today() - dt.timedelta(days=3)
     start = end - dt.timedelta(days=days - 1)
     s, e = start.isoformat(), end.isoformat()
-    url = ANALYTICS_URL.format(site=quote(site, safe=""))
     print(f"\n=== Search Analytics ({s} ~ {e}) ===")
 
     def _q(dimensions=None):
-        body = {"startDate": s, "endDate": e}
-        if dimensions:
-            body["dimensions"] = dimensions
-            body["rowLimit"] = 100
-        r = api(token, "POST", url, json=body)
-        r.raise_for_status()
-        return r.json()
+        return query_analytics(token, site, s, e, dimensions)
 
     try:
         total = _q()
@@ -201,6 +302,82 @@ def search_analytics(token, site, days):
             print(f"    {row.get('impressions',0):>6.0f} imp | {row.get('clicks',0):>3.0f} clk | {row['keys'][0]}")
     except Exception as ex:
         print(f"  Search Analytics 失败: {ex}")
+
+
+def compare_report(token, site, days):
+    """本期 vs 紧邻的等长前一段：涨跌页 / 涨跌查询。
+
+    两期各自是一次单维查询，join 在本地做，不碰双维分组的贵查询。
+    """
+    cur_s, cur_e, base_s, base_e = period_ranges(days)
+    print(f"\n=== 期段对比 ===")
+    print(f"  本期   {cur_s} ~ {cur_e}")
+    print(f"  对比期 {base_s} ~ {base_e}（紧邻等长前一段）")
+
+    try:
+        for label, dims in [("按页面", ["page"]), ("按查询", ["query"])]:
+            cur = query_analytics(token, site, cur_s.isoformat(), cur_e.isoformat(),
+                                  dims).get("rows", [])
+            base = query_analytics(token, site, base_s.isoformat(), base_e.isoformat(),
+                                   dims).get("rows", [])
+            rows = diff_rows(cur, base)
+            gain = [r for r in rows if r["d_clicks"] > 0][:10]
+            drop = sorted((r for r in rows if r["d_clicks"] < 0),
+                          key=lambda r: r["d_clicks"])[:10]
+            print(f"\n  {label} —— 涨幅 Top:")
+            if not gain:
+                print("    (无)")
+            for r in gain:
+                print(f"    {r['d_clicks']:+5.0f} clk {r['d_impressions']:+7.0f} imp "
+                      f"{r['d_position']:+5.1f} pos | {r['key']}")
+            print(f"  {label} —— 跌幅 Top:")
+            if not drop:
+                print("    (无)")
+            for r in drop:
+                print(f"    {r['d_clicks']:+5.0f} clk {r['d_impressions']:+7.0f} imp "
+                      f"{r['d_position']:+5.1f} pos | {r['key']}")
+    except Exception as ex:
+        print(f"  期段对比失败: {ex}")
+
+
+def cannibalization_report(token, site, days, min_impressions=10):
+    """同词多页竞争（--cannibalization，**默认关闭**）。
+
+    ⚠️ **这是本脚本最贵的一次查询**：必须按 query+page 双维分组，官方文档称
+    "Queries grouped/filtered by page AND query string are the most expensive"，
+    且负载随日期范围变长而增加。因此：
+      - 默认关闭，只在显式传 --cannibalization 时才跑
+      - 跑完把结果缓存下来复用，别当每次复查的默认开销
+      - 日期范围别给大（默认 28 天）
+    """
+    cur_s, cur_e, _, _ = period_ranges(days)
+    print(f"\n=== 同词多页竞争（{cur_s} ~ {cur_e}）===")
+    print("  ⚠️ 该查询按 query+page 双维分组，是 Search Analytics 里最贵的一档；")
+    print("     日期范围越长越贵，故本开关默认关闭。")
+    try:
+        rows = query_analytics(token, site, cur_s.isoformat(), cur_e.isoformat(),
+                               ["query", "page"], row_limit=5000).get("rows", [])
+        out = find_cannibalization(rows, min_impressions=min_impressions)
+        if not out:
+            print("  (未发现同词多页竞争)")
+            return
+        print(f"  发现 {len(out)} 个 query 有多页有实质曝光（>= {min_impressions} imp）：\n")
+        multi_url = 0
+        for o in out[:20]:
+            print(f"  「{o['query']}」 领先页 {o['leading']}")
+            for pg in o["pages"]:
+                mark = " ←领先" if pg["page"] == o["leading"] else ""
+                var = ""
+                if len(pg["variants"]) > 1:
+                    multi_url += 1
+                    var = f"  （{len(pg['variants'])} 个 URL 变体）"
+                print(f"      {pg['impressions']:>6.0f} imp | {pg['clicks']:>3.0f} clk | "
+                      f"pos {pg['position']:>5.1f} | {pg['page']}{mark}{var}")
+        if multi_url:
+            print(f"\n  注：其中 {multi_url} 个页面有多个 URL 变体（多半是尾斜杠不一致），")
+            print("      属 canonical 问题而非内容竞争，建议统一后再判读。")
+    except Exception as ex:
+        print(f"  同词多页查询失败: {ex}")
 
 
 def url_inspection(token, site, urls, limit):
@@ -228,6 +405,11 @@ def main():
     ap.add_argument("--days", type=int, default=28)
     ap.add_argument("--inspect-limit", type=int, default=50)
     ap.add_argument("--no-inspect", action="store_true")
+    ap.add_argument("--compare", action="store_true",
+                    help="输出本期 vs 紧邻等长前一段的涨跌页/查询")
+    ap.add_argument("--cannibalization", action="store_true",
+                    help="查同词多页竞争。⚠️ 需 query+page 双维分组，是 Search Analytics "
+                         "里最贵的查询，且日期范围越长越贵——默认关闭，按需开启")
     args = ap.parse_args()
 
     key_path = os.path.expanduser(args.key)
@@ -260,6 +442,10 @@ def main():
     print(f"\n=== 选中站点: {site} ===")
     sitemaps_report(token, site)
     search_analytics(token, site, args.days)
+    if args.compare:
+        compare_report(token, site, args.days)
+    if args.cannibalization:
+        cannibalization_report(token, site, args.days)
     if not args.no_inspect:
         urls = fetch_sitemap_urls(gsc_site_to_base_url(site))
         if urls:

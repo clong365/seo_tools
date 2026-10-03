@@ -53,6 +53,8 @@ uv pip install google-auth requests
 .venv/bin/python gsc.py                      # 列出 key 能访问的所有站点
 .venv/bin/python gsc.py --site example.com   # 复查某个站点
 .venv/bin/python gsc.py --site example.com --no-inspect   # 只看趋势，跳过 URL Inspection（快很多）
+.venv/bin/python gsc.py --site example.com --compare        # 本期 vs 上一等长期的涨跌页/查询
+.venv/bin/python gsc.py --site example.com --cannibalization  # ⚠️ 贵查询，见下
 .venv/bin/python bing.py --site example.com
 .venv/bin/python ga.py                       # 默认 property 来自 sites.json
 .venv/bin/python cf.py                       # CF Web Analytics（RUM）
@@ -65,6 +67,26 @@ uv pip install google-auth requests
 大陆访问 GSC / GA4 需 `https_proxy` 代理；Bing、CF 直连即可。
 
 ⚠️ `gsc.py` **默认会跑最多 50 条 URL Inspection**（每条 sleep 1s + 接口本身慢）→ 单次约 3–5 分钟。只做趋势 / 收录复查时加 `--no-inspect`。
+
+### ⚠️ `--cannibalization` 是贵查询，默认关闭
+
+它必须按 **query + page 双维分组**查 Search Analytics。Google 官方文档原话：
+
+> *"Queries grouped/filtered by page AND query string are the most expensive."*
+
+而且**查询负载随日期范围变长而增加**（查 6 个月远贵于查 1 天）。
+
+因此：
+
+- **默认关闭**，只在显式传 `--cannibalization` 时才跑
+- 日期范围别给大（默认 28 天已经够用）
+- **跑完把结果缓存下来复用**，别当每次复查的默认开销
+- 想省钱先用 `--days 14` 试探
+
+`--compare` 不受此影响：它是两次单维查询 + 本地 join，不碰双维分组。
+
+判读注意：同一页的**尾斜杠变体**（`/a/18077` 与 `/a/18077/`）会自动归并成一页，不计为竞争；
+归并后仍会标出「N 个 URL 变体」——那是 canonical 问题，不是内容竞争。
 
 ## 测试
 

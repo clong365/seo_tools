@@ -106,5 +106,155 @@ class TestMainErrorHandling(unittest.TestCase):
         self.assertIn("client_email", str(ex.call_args[0][0]))
 
 
+
+class TestPeriodRanges(unittest.TestCase):
+    def test_current_window_ends_three_days_ago(self):
+        """GSC 最近几天数据不全，当前期必须截止 3 天前。"""
+        from datetime import date
+        cur_start, cur_end, base_start, base_end = gsc.period_ranges(28, today=date(2026, 10, 3))
+        self.assertEqual(cur_end, date(2026, 9, 30))
+        self.assertEqual(cur_start, date(2026, 9, 3))
+
+    def test_baseline_is_adjacent_equal_length(self):
+        from datetime import date
+        cur_start, cur_end, base_start, base_end = gsc.period_ranges(28, today=date(2026, 10, 3))
+        # 基线期紧邻当前期之前，长度相同
+        self.assertEqual(base_end, date(2026, 9, 2))
+        self.assertEqual(base_start, date(2026, 8, 6))
+        self.assertEqual((cur_end - cur_start).days, (base_end - base_start).days)
+        self.assertEqual((cur_start - base_end).days, 1)
+
+    def test_returns_dates(self):
+        import datetime
+        out = gsc.period_ranges(7)
+        self.assertEqual(len(out), 4)
+        for d in out:
+            self.assertIsInstance(d, datetime.date)
+
+
+class TestDiffRows(unittest.TestCase):
+    def setUp(self):
+        self.cur = [
+            {"keys": ["/a/"], "clicks": 20, "impressions": 200, "ctr": 0.1, "position": 4.0},
+            {"keys": ["/b/"], "clicks": 5, "impressions": 50, "ctr": 0.1, "position": 9.0},
+        ]
+        self.base = [
+            {"keys": ["/a/"], "clicks": 10, "impressions": 150, "ctr": 0.066, "position": 6.0},
+            {"keys": ["/b/"], "clicks": 8, "impressions": 80, "ctr": 0.1, "position": 7.0},
+        ]
+
+    def test_deltas_computed(self):
+        rows = gsc.diff_rows(self.cur, self.base)
+        by = {r["key"]: r for r in rows}
+        self.assertEqual(by["/a/"]["d_clicks"], 10)
+        self.assertEqual(by["/a/"]["d_impressions"], 50)
+        self.assertAlmostEqual(by["/a/"]["d_position"], -2.0)
+
+    def test_sorted_by_click_delta_desc(self):
+        rows = gsc.diff_rows(self.cur, self.base)
+        self.assertEqual([r["key"] for r in rows], ["/a/", "/b/"])
+
+    def test_new_page_only_in_current(self):
+        rows = gsc.diff_rows(self.cur, [])
+        by = {r["key"]: r for r in rows}
+        self.assertEqual(by["/a/"]["d_clicks"], 20)
+        self.assertIsNone(by["/a/"]["base"])
+
+    def test_disappeared_page_only_in_baseline(self):
+        rows = gsc.diff_rows([], self.base)
+        by = {r["key"]: r for r in rows}
+        self.assertEqual(by["/a/"]["d_clicks"], -10)
+        self.assertIsNone(by["/a/"]["cur"])
+
+    def test_keeps_both_periods_metrics(self):
+        rows = gsc.diff_rows(self.cur, self.base)
+        by = {r["key"]: r for r in rows}
+        self.assertEqual(by["/a/"]["cur"]["clicks"], 20)
+        self.assertEqual(by["/a/"]["base"]["clicks"], 10)
+
+
+class TestFindCannibalization(unittest.TestCase):
+    def test_single_page_excluded(self):
+        rows = [{"keys": ["kw1", "/a/"], "clicks": 10, "impressions": 100, "position": 3.0}]
+        self.assertEqual(gsc.find_cannibalization(rows), [])
+
+    def test_two_pages_included(self):
+        rows = [
+            {"keys": ["kw1", "/a/"], "clicks": 10, "impressions": 100, "position": 3.0},
+            {"keys": ["kw1", "/b/"], "clicks": 4, "impressions": 60, "position": 8.0},
+        ]
+        out = gsc.find_cannibalization(rows)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["query"], "kw1")
+        self.assertEqual(len(out[0]["pages"]), 2)
+
+    def test_min_impressions_threshold(self):
+        rows = [
+            {"keys": ["kw1", "/a/"], "clicks": 10, "impressions": 100, "position": 3.0},
+            {"keys": ["kw1", "/b/"], "clicks": 0, "impressions": 5, "position": 40.0},
+        ]
+        self.assertEqual(gsc.find_cannibalization(rows, min_impressions=10), [])
+        self.assertEqual(len(gsc.find_cannibalization(rows, min_impressions=1)), 1)
+
+    def test_leading_page_is_most_clicks(self):
+        rows = [
+            {"keys": ["kw1", "/a/"], "clicks": 2, "impressions": 100, "position": 3.0},
+            {"keys": ["kw1", "/b/"], "clicks": 15, "impressions": 60, "position": 8.0},
+        ]
+        out = gsc.find_cannibalization(rows)
+        # leading 与 pages[].page 同为规范化身份（去尾斜杠）
+        self.assertEqual(out[0]["leading"], "/b")
+
+    def test_trailing_slash_variants_are_same_page(self):
+        """尾斜杠变体是同一页（规范化问题），不得报成关键词竞争。"""
+        rows = [
+            {"keys": ["kw1", "/a/18077"], "clicks": 5, "impressions": 50, "position": 5.0},
+            {"keys": ["kw1", "/a/18077/"], "clicks": 3, "impressions": 30, "position": 6.0},
+        ]
+        self.assertEqual(gsc.find_cannibalization(rows), [])
+
+    def test_variants_merged_into_one_page_entry(self):
+        rows = [
+            {"keys": ["kw1", "/a/18077"], "clicks": 5, "impressions": 50, "position": 5.0},
+            {"keys": ["kw1", "/a/18077/"], "clicks": 3, "impressions": 30, "position": 6.0},
+            {"keys": ["kw1", "/b/"], "clicks": 2, "impressions": 40, "position": 9.0},
+        ]
+        out = gsc.find_cannibalization(rows)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(len(out[0]["pages"]), 2)          # 两个不同页，不是三个
+        merged = [p for p in out[0]["pages"] if p["page"] == "/a/18077"][0]
+        self.assertEqual(len(merged["variants"]), 2)        # 变体要看得见
+        self.assertEqual(merged["impressions"], 80)         # 合计
+
+    def test_language_variant_is_distinct_page(self):
+        """/zh-tw/ 前缀是另一篇内容，属真竞争，不能被合并。"""
+        rows = [
+            {"keys": ["kw1", "/p03/a/673/11539/"], "clicks": 1, "impressions": 50, "position": 5.0},
+            {"keys": ["kw1", "/zh-tw/p03/a/673/48223/"], "clicks": 1, "impressions": 60, "position": 6.0},
+        ]
+        out = gsc.find_cannibalization(rows)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(len(out[0]["pages"]), 2)
+
+    def test_page_entry_shape(self):
+        rows = [
+            {"keys": ["kw1", "/a/"], "clicks": 1, "impressions": 50, "position": 5.0},
+            {"keys": ["kw1", "/b/"], "clicks": 2, "impressions": 50, "position": 6.0},
+        ]
+        page = gsc.find_cannibalization(rows)[0]["pages"][0]
+        for field in ("page", "variants", "clicks", "impressions", "position"):
+            self.assertIn(field, page)
+
+
+    def test_groups_multiple_queries_separately(self):
+        rows = [
+            {"keys": ["kw1", "/a/"], "clicks": 1, "impressions": 50, "position": 3.0},
+            {"keys": ["kw1", "/b/"], "clicks": 1, "impressions": 50, "position": 8.0},
+            {"keys": ["kw2", "/c/"], "clicks": 9, "impressions": 50, "position": 1.0},
+        ]
+        out = gsc.find_cannibalization(rows)
+        self.assertEqual([o["query"] for o in out], ["kw1"])
+
+
 if __name__ == "__main__":
     unittest.main()
