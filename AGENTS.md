@@ -13,7 +13,12 @@ GSC + Bing + GA4 + CF Web Analytics + CrUX + PSI 收录/表现/流量/性能复�
 - Bing：`.venv/bin/python bing.py --site 域名`
 - GA4：`.venv/bin/python ga.py [--property 属性ID]`（账号 ID ≠ 属性 ID，`runReport` 用属性 ID）
 - IndexNow：`indexnow.py`（推送，非查询；key 在 `~/.config/seo-tools/indexnow.json`，按 host 配置）——从某站点项目的 submit-indexnow.mjs 移植为共享版（2026-10-02），URL 源=线上 sitemap（`--sitemap` 可重复）或 `--file`
-- CF Web Analytics：`.venv/bin/python cf.py`（GraphQL RUM，`viewer.accounts` 下，过滤用 accountTag+siteTag）；`--edge` = zone 级 `httpRequestsAdaptiveGroups` 按日×状态码（旧 URL 301 趋势观测，2026-10-02 加）——**默认只统计 `requestSource: "eyeball"`（真实客户端，含爬虫）**，`--all-sources` 才含全部来源（含 `edgeWorkerCacheAPI` 遥测行）
+- CF Web Analytics：`.venv/bin/python cf.py`
+- Workers Analytics Engine：`.venv/bin/python cf.py --ae --preset 3h`（输出纯 JSON）或
+  `--ae --sql-file <path>`。2026-10-04 从 cf CLI(OAuth) 迁到 API token——**同一把
+  cf-api-token.txt 即可**，实测权限足够（HTTP 200），与 `cf analytics_engine sql query`
+  逐项对照一致。⚠️ 请求体是**纯 SQL 文本**不是 JSON 包装；`{dataset}` 由 `sites.json`
+  的 `ae_dataset` 代入，dataset 名不进源码。（GraphQL RUM，`viewer.accounts` 下，过滤用 accountTag+siteTag）；`--edge` = zone 级 `httpRequestsAdaptiveGroups` 按日×状态码（旧 URL 301 趋势观测，2026-10-02 加）——**默认只统计 `requestSource: "eyeball"`（真实客户端，含爬虫）**，`--all-sources` 才含全部来源（含 `edgeWorkerCacheAPI` 遥测行）
 - CrUX：`.venv/bin/python crux.py [--url 单页] [--form-factor PHONE|DESKTOP]`（真实用户 Core Web Vitals；默认 origin 读 `sites.json`；key 在 `~/.config/seo-tools/crux-api-key.txt`，GCP 项目里 API 限制=仅 Chrome UX Report API）
 - PSI：`.venv/bin/python psi.py [--url …] [--strategy mobile|desktop] [--only field|lab]`（默认 key=`~/.config/seo-tools/google-sa.json` —— **与 GSC/GA4 同一把 SA**，无需另存）（**鉴权：Service Account JSON 即可，scope 必须是 `openid`**——实测 2026-10-02：`cloud-platform`/`cloud-platform.read-only`/`userinfo.email` 均 403 `ACCESS_TOKEN_SCOPE_INSUFFICIENT`，只有 `openid` 通过；同一把 `google-sa.json` 可直接用，**无需另建 API key**。PageSpeed Insights：**实验室数据由 Google 侧跑 Lighthouse** + **CrUX 现场数据**，因此不受我们本机代理/异地出口干扰；也可用独立 API key，GCP 项目里启用 PageSpeed Insights API 后创建即可，免费）
 
@@ -96,7 +101,13 @@ Google Search Analytics 的**负载**（load quota）不是按次数算，是按
 - **GSC 无 API 可查**（官方未开放，只能看控制台）：收录覆盖率报告（coverage）、抓取统计（crawl stats）、外链、手动处置、Discover。Core Web Vitals 走 CrUX（见运行节）。
 - **GA4**：scope 是 `analytics.readonly`（只读是设计），管理类操作查不到；用户级/Explore 部分维度仅控制台；BigQuery 导出未开通。realtime 报表同 scope 理论可用，未实测。
 - **CF 边缘响应时间指标：schema 里有、本 token 拿不到**（2026-10-02 实测）：`ZoneHttpRequestsAdaptiveGroupsAvg/Quantiles` 暴露 `edgeTimeToFirstByteMs`、`edgeDnsResponseTimeMs`、`originResponseDurationMs` 等（含 P25–P999 分位），但查 `avg { edgeTimeToFirstByteMs }` 或 `quantiles { edgeTimeToFirstByteMsP50 }` 一律 **authz 拒绝**（"zone … does not have access to the field"，schema 字段名会小写成 edgetimetofirstbytems，可据此辨认这棵错误）。⚠️ **不要拿 `originResponseDurationMs` 当"取源时延"**：按 colo 分组时绝大多数组返回 null（Worker+Cache API 路径没有传统 origin），仅少数 colo 有值（实测 AMS 42.6ms / CDG 188ms），不能用来做"距离 vs 延迟"判断。**结论：按 colo 测边缘延迟这条路在 API 上不通。** 另一条替代路径（无需 API）：**CF 控制台 → Analytics → Performance 页按 colo 显示 TTFB**，可直接看"各 colo TTFB 是否随距离拉长"。review 另用 cf CLI 的 469-scope OAuth 复测，`edgeTimeToFirstByteMs` **同样 authz 拒绝** → 换凭证解决不了，需另配权限。
-- **CF**：RUM 与 zone 边缘数据集可读；Workers Logs / Logpush 未配置（要看 worker 运行日志需另开）；**Workers Analytics Engine 查询未验证**（301 专项写入自建 dataset，查询走 GraphQL `accountTag` 下 `analyticsEngineAdaptiveGroups`，预期同一把 cfut_ 令牌已覆盖，首次用到时补记）。
+- **CF**：RUM 与 zone 边缘数据集可读；Workers Logs / Logpush 未配置（要看 worker 运行日志需另开）。
+  **Workers Analytics Engine 已于 2026-10-04 验证**：走 REST
+  `POST /accounts/{accountTag}/analytics_engine/sql`，**同一把 API token 权限足够**，
+  无需另配 scope；与 cf CLI(OAuth) 输出逐项一致。故 AE 查询不再依赖 cf CLI 的 OAuth
+  （那条链路曾报 "No authentication token found" 后自愈，根因未查明——用 REST 可整个
+  消灭 OAuth 故障面）。备选路径：GraphQL `accountTag` 下 `analyticsEngineAdaptiveGroups`
+  （未实测）。
 - **百度**：无 API，且相关项目不做百度优化。
 - **两种鉴权不可互换（2026-10-02 实测，别浪费时间试）**：
   - **CrUX 只能 API key**：带 SA token（`openid` 或 `cloud-platform`）请求 → **400 INVALID_ARGUMENT**；SA token + key 参数同时给也 400；**只有 API key 参数**得到 200 ⇒ `crux-api-key.txt` **不可删**。

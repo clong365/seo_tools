@@ -39,6 +39,7 @@ uv pip install google-auth requests
   "cf_site": "<CF siteTag>",
   "cf_zone": "<CF zoneTag>",
   "ga_property": "<GA4 property ID>",
+  "ae_dataset": "<AE dataset 名>",
   "origin": "https://www.example.com",
   "indexnow_host": "www.example.com"
 }
@@ -46,7 +47,8 @@ uv pip install google-auth requests
 
 解析顺序：**命令行 flag → 环境变量 → `sites.json` → 报错并提示怎么配**。
 
-对应环境变量：`GSC_SITE` / `CF_ACCOUNT` / `CF_SITE` / `CF_ZONE` / `GA_PROPERTY` / `CRUX_ORIGIN` / `PSI_URL`。
+对应环境变量：`GSC_SITE` / `CF_ACCOUNT` / `CF_SITE` / `CF_ZONE` / `GA_PROPERTY` /
+`CF_AE_DATASET` / `CRUX_ORIGIN` / `PSI_URL`。
 
 ## 用法
 
@@ -60,10 +62,21 @@ uv pip install google-auth requests
 .venv/bin/python ga.py                       # 默认 property 来自 sites.json
 .venv/bin/python cf.py                       # CF Web Analytics（RUM）
 .venv/bin/python cf.py --edge                # zone 边缘按日×状态码（301/404 趋势，含无 JS 爬虫）
+.venv/bin/python cf.py --ae --preset 3h     # Workers Analytics Engine SQL（输出纯 JSON）
+.venv/bin/python cf.py --ae --sql-file q.sql # 任意 AE SQL
 .venv/bin/python crux.py                     # CrUX 真实用户 Core Web Vitals
 .venv/bin/python psi.py                      # PSI：实验室 Lighthouse + 现场 CrUX 双口径
 .venv/bin/python indexnow.py --file urls.txt # IndexNow 增量推送（先 --dry-run 预演）
 ```
+
+### Workers Analytics Engine（`--ae`）
+
+`POST /accounts/{account}/analytics_engine/sql`，请求体是**纯 SQL 文本**，与
+`--edge` 同一把 API token。输出**纯 JSON**（与 cf CLI 结构一致），便于 `| jq` 解析。
+
+- `--preset 3h`：近 3 小时 301/410 分组计数。dataset 名从 `sites.json` 的 `ae_dataset` 取。
+- `--sql-file <path>`：跑任意 SQL，与 `--preset` 二选一。
+- SQL 末尾加 `FORMAT JSON` 得单一 JSON，否则 NDJSON；**返回的数值是字符串**，求和前要转 `int`。
 
 `--site` 接受三种写法：裸域名 `example.com`、GSC 资源名 `sc-domain:example.com`、
 完整 URL `https://www.example.com/`——三者等价，都会匹配到同一个 GSC 资源。
