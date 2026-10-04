@@ -4,6 +4,7 @@
 项目名用拼接写法，避免测试文件自己成为命中源。
 """
 import os
+import subprocess
 import unittest
 
 from config import load_sites
@@ -22,6 +23,23 @@ SENSITIVE_SUBSTRINGS = [
 
 
 def iter_source_files(root):
+    """枚举**可能进入 git 提交**的文件：已跟踪 + 未被忽略的未跟踪。
+
+    只看这些，因为守卫的职责是「别让敏感值进公开仓」。被 .gitignore 挡住的
+    本地缓存（如 .cloudflare/、凭证文件）在工作树里存在不等于会泄漏——
+    一并扫描会让守卫对无关的工具缓存长期误报，反而稀释信号。
+    无 git 时退化为目录遍历。
+    """
+    try:
+        out = subprocess.run(
+            ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
+            capture_output=True, text=True, cwd=root, check=True).stdout
+        for line in out.splitlines():
+            if line.endswith(SCAN_EXT):
+                yield os.path.join(root, line)
+        return
+    except Exception:
+        pass
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
         for name in filenames:
