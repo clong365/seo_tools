@@ -8,6 +8,7 @@
 """
 import argparse
 import datetime as dt
+import json
 import os
 import sys
 
@@ -16,8 +17,88 @@ import requests
 import config
 
 GRAPHQL_URL = "https://api.cloudflare.com/client/v4/graphql"
+AE_SQL_URL = "https://api.cloudflare.com/client/v4/accounts/{account}/analytics_engine/sql"
 DEFAULT_KEY = "~/.config/seo-tools/cf-api-token.txt"
 TIMEOUT = 30
+# AE 走 ClickHouse 式查询，耗时不如有界的 GraphQL；且调用方是定时监控，
+# 一次误超时就是漏一轮。实测常规 1–2.4s，留足余量。
+AE_TIMEOUT = 60
+
+
+# AE 预设查询。{dataset} 由配置代入——dataset 名是部署细节，不进源码。
+PRESETS = {
+    "3h": (
+        "SELECT blob4 AS kind, count() AS n\n"
+        "FROM {dataset}\n"
+        "WHERE timestamp >= NOW() - INTERVAL '3' HOUR\n"
+        "GROUP BY blob4\n"
+        "ORDER BY n DESC\n"
+        "FORMAT JSON"
+    ),
+}
+
+
+def build_sql(preset=None, sql_file=None, dataset=None):
+    """构造 AE SQL 文本。--preset 与 --sql-file 二选一。
+
+    预设模板的 {dataset} 由配置代入；末尾必须是 FORMAT JSON，
+    否则 AE 返回 NDJSON，与 cf CLI 输出结构对不上。
+    """
+    if preset and sql_file:
+        sys.exit("--preset 与 --sql-file 只能二选一")
+    if not preset and not sql_file:
+        sys.exit("请指定 --preset <预设名> 或 --sql-file <SQL 路径>")
+    if sql_file:
+        path = os.path.expanduser(sql_file)
+        try:
+            with open(path) as f:
+                return f.read()
+        except OSError as ex:
+            sys.exit(f"读不了 SQL 文件 {path}: {ex}")
+    if preset not in PRESETS:
+        sys.exit(f"未知预设 {preset!r}。可用: {', '.join(sorted(PRESETS))}")
+    if not dataset:
+        sys.exit("预设查询需要 dataset：--dataset 或 sites.json 的 ae_dataset")
+    return PRESETS[preset].format(dataset=dataset)
+
+
+def ae_query(token, account, sql):
+    """POST Workers Analytics Engine SQL 端点，返回解析后的 JSON。
+
+    请求体是**纯 SQL 文本**（不是 JSON 包装），与 cf CLI 的行为一致。
+    任何失败都抛 RuntimeError 并带上响应体——缺权限时要能直接看出缺哪个，
+    **不许静默降级成空结果**。
+    """
+    url = AE_SQL_URL.format(account=account)
+    r = requests.post(url,
+                      headers={"Authorization": f"Bearer {token}",
+                               "Content-Type": "text/plain"},
+                      data=sql.encode(), timeout=AE_TIMEOUT)
+    try:
+        body = r.json()
+    except ValueError:
+        body = None
+    if r.status_code >= 400:
+        detail = (body or {}).get("errors") or r.text[:300]
+        raise RuntimeError(f"HTTP {r.status_code}: {detail}")
+    if isinstance(body, dict) and body.get("errors"):
+        raise RuntimeError(f"响应带 errors: {body['errors']}")
+    return body
+
+
+def ae_report(token, account, preset, sql_file, dataset=None, conf_path=None):
+    """跑 AE 查询，结果以 JSON 打到 stdout（便于 cron 直接管道给 jq）。
+
+    dataset 未显式给时回退 sites.json 的 ae_dataset——dataset 名是部署细节，
+    不该要求每次敲在命令行里。
+    """
+    ds = dataset or config.resolve("ae_dataset", "CF_AE_DATASET", None, conf_path)
+    sql = build_sql(preset=preset, sql_file=sql_file, dataset=ds)
+    try:
+        body = ae_query(token, account, sql)
+    except Exception as ex:
+        sys.exit(f"AE 查询失败: {ex}")
+    print(json.dumps(body, ensure_ascii=False, indent=2))
 
 
 def extract_rows(resp):
@@ -152,6 +233,12 @@ def main():
     ap.add_argument("--all-sources", action="store_true",
                     help="--edge 时不过滤 requestSource（含 edgeWorkerCacheAPI 遥测行；默认只统计 eyeball）")
     ap.add_argument("--zone", default=None, help="CF zone ID，--edge 用（默认读 sites.json）")
+    ap.add_argument("--ae", action="store_true",
+                    help="Workers Analytics Engine SQL 查询（输出纯 JSON）")
+    ap.add_argument("--preset", help="--ae 用预设查询，如 3h")
+    ap.add_argument("--sql-file", help="--ae 用 SQL 文件路径（与 --preset 二选一）")
+    ap.add_argument("--dataset", default=None,
+                    help="AE dataset 名，预设查询用（默认读 sites.json 的 ae_dataset）")
     args = ap.parse_args()
 
     key_path = os.path.expanduser(args.key)
@@ -159,6 +246,11 @@ def main():
         sys.exit(f"找不到 token 文件: {key_path}\n把 CF API token 放 ~/.config/seo-tools/cf-api-token.txt。")
 
     token = open(key_path).read().strip()
+
+    if args.ae:
+        account = config.require("cf_account", "CF_ACCOUNT", args.account)
+        ae_report(token, account, args.preset, args.sql_file, dataset=args.dataset)
+        return
 
     if args.edge:
         zone = config.require("cf_zone", "CF_ZONE", args.zone)
