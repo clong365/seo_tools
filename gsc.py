@@ -17,6 +17,8 @@ from urllib.parse import quote, urlsplit, urljoin
 
 import requests
 
+import config
+
 SCOPES = [
     "https://www.googleapis.com/auth/webmasters",
     "https://www.googleapis.com/auth/webmasters.readonly",
@@ -30,13 +32,19 @@ TIMEOUT = 30
 
 
 def normalize_site(s):
+    """规整为裸域名：去协议/路径/尾斜杠，以及 GSC 资源名的 sc-domain: 前缀。
+
+    前缀必须在这里去掉——pick_site 是拿裸域名比对的，
+    入参若带着 sc-domain: 就永远匹配不上（实测踩过）。
+    """
     s = (s or "").strip().rstrip("/")
     s = re.sub(r"^https?://", "", s)
-    return s.split("/", 1)[0]
+    s = s.split("/", 1)[0]
+    return s.removeprefix("sc-domain:")
 
 
 def _bare_host(s):
-    return normalize_site(s).removeprefix("sc-domain:")
+    return normalize_site(s)
 
 
 def pick_site(sites, want):
@@ -48,6 +56,15 @@ def pick_site(sites, want):
         if _bare_host(s) == "www." + want:
             return s
     return None
+
+
+def choose_site(sites, cli_value, conf_path=None):
+    """选 GSC 资源名：命令行 > sites.json 的 gsc_site；都没有返回 None（调用方只列站点）。
+
+    入参三种写法都接受：裸域名、sc-domain: 前缀、完整 URL。
+    """
+    want = cli_value or config.resolve("gsc_site", "GSC_SITE", None, conf_path)
+    return pick_site(sites, want) if want else None
 
 
 def parse_sitemap_locs(xml_text):
@@ -401,7 +418,8 @@ def url_inspection(token, site, urls, limit):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--key", default=os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", DEFAULT_KEY))
-    ap.add_argument("--site", default=None)
+    ap.add_argument("--site", default=None,
+                    help="GSC 资源，裸域名 / sc-domain: 前缀 / 完整 URL 皆可（默认读 sites.json 的 gsc_site）")
     ap.add_argument("--days", type=int, default=28)
     ap.add_argument("--inspect-limit", type=int, default=50)
     ap.add_argument("--no-inspect", action="store_true")
@@ -430,14 +448,17 @@ def main():
     for s in sites:
         print(f"  {s}")
 
-    if not args.site:
-        if not sites:
-            sys.exit("service account 未授权任何资源。到 GSC 各资源「用户和权限」添加 client_email 并给「完全」。")
-        return
+    if not sites:
+        sys.exit("service account 未授权任何资源。到 GSC 各资源「用户和权限」添加 client_email 并给「完全」。")
 
-    site = pick_site(sites, args.site)
-    if not site:
-        sys.exit(f"'{args.site}' 不在可访问列表。可访问: {sites}")
+    site = choose_site(sites, args.site)
+    if site is None:
+        want = args.site or config.resolve("gsc_site", "GSC_SITE")
+        if not want:
+            print("\n（未指定 --site，且 sites.json 里没有 gsc_site → 只列站点）"
+                  "\n  在 ~/.config/seo-tools/sites.json 配 gsc_site 后，不带参数即可出报告。")
+            return
+        sys.exit(f"'{want}' 不在可访问列表。可访问: {sites}")
 
     print(f"\n=== 选中站点: {site} ===")
     sitemaps_report(token, site)
