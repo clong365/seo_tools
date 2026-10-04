@@ -6,7 +6,10 @@ GSC + Bing + GA4 + CF Web Analytics + CrUX + PSI 收录/表现/流量/性能复�
 
 ## 运行
 
-- GSC：`.venv/bin/python gsc.py [--site 域名] [--no-inspect] [--compare] [--cannibalization]`（不传 --site 列所有可访问站点）。⚠️ **默认会跑最多 50 条 URL Inspection（`--inspect-limit`，每条 sleep 1s + 接口本身慢）→ 单次约 3–5 分钟**；只做趋势/收录复查时**加 `--no-inspect`**（实测 7 秒完成）。2026-10-02 实测：不加时 200s 超时仍无输出，易被误判为"卡死/凭证坏了"——**不是**，凭证与接口都是好的。
+- GSC：`.venv/bin/python gsc.py [--site 站点] [--no-inspect] [--compare] [--cannibalization]`
+  （不传 `--site` 时用 `sites.json` 的 `gsc_site`；**没配 gsc_site 才**只列站点然后退出。
+  `--site` 接受裸域名 / `sc-domain:` 前缀 / 完整 URL 三者等价——`normalize_site` 会把
+  `sc-domain:` 一并规整掉，与 `pick_site` 的裸域名比对口径一致）。⚠️ **默认会跑最多 50 条 URL Inspection（`--inspect-limit`，每条 sleep 1s + 接口本身慢）→ 单次约 3–5 分钟**；只做趋势/收录复查时**加 `--no-inspect`**（实测 7 秒完成）。2026-10-02 实测：不加时 200s 超时仍无输出，易被误判为"卡死/凭证坏了"——**不是**，凭证与接口都是好的。
 - Bing：`.venv/bin/python bing.py --site 域名`
 - GA4：`.venv/bin/python ga.py [--property 属性ID]`（账号 ID ≠ 属性 ID，`runReport` 用属性 ID）
 - IndexNow：`indexnow.py`（推送，非查询；key 在 `~/.config/seo-tools/indexnow.json`，按 host 配置）——从某站点项目的 submit-indexnow.mjs 移植为共享版（2026-10-02），URL 源=线上 sitemap（`--sitemap` 可重复）或 `--file`
@@ -22,7 +25,11 @@ GSC + Bing + GA4 + CF Web Analytics + CrUX + PSI 收录/表现/流量/性能复�
 命令行 flag  →  环境变量  →  ~/.config/seo-tools/sites.json  →  报错并提示怎么配
 ```
 
-环境变量：`CF_ACCOUNT` / `CF_SITE` / `CF_ZONE` / `GA_PROPERTY` / `CRUX_ORIGIN` / `PSI_URL`。
+环境变量：`GSC_SITE` / `CF_ACCOUNT` / `CF_SITE` / `CF_ZONE` / `GA_PROPERTY` / `CRUX_ORIGIN` / `PSI_URL`。
+
+⚠️ **`normalize_site` 必须去掉 `sc-domain:` 前缀**（2026-10-04 修）：`pick_site` 是拿裸域名
+比对的，若入参带着前缀则永远匹配不上。曾因此 `--site sc-domain:xxx` 静默失败。
+改 `normalize_site` 时别把这一步去掉。
 
 ## GSC 查询成本（2026-10-03 加 --compare / --cannibalization 时定的约束）
 

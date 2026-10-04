@@ -34,6 +34,7 @@ uv pip install google-auth requests
 
 ```json
 {
+  "gsc_site": "example.com",
   "cf_account": "<CF accountTag>",
   "cf_site": "<CF siteTag>",
   "cf_zone": "<CF zoneTag>",
@@ -45,13 +46,13 @@ uv pip install google-auth requests
 
 解析顺序：**命令行 flag → 环境变量 → `sites.json` → 报错并提示怎么配**。
 
-对应环境变量：`CF_ACCOUNT` / `CF_SITE` / `CF_ZONE` / `GA_PROPERTY` / `CRUX_ORIGIN` / `PSI_URL`。
+对应环境变量：`GSC_SITE` / `CF_ACCOUNT` / `CF_SITE` / `CF_ZONE` / `GA_PROPERTY` / `CRUX_ORIGIN` / `PSI_URL`。
 
 ## 用法
 
 ```bash
-.venv/bin/python gsc.py                      # 列出 key 能访问的所有站点
-.venv/bin/python gsc.py --site example.com   # 复查某个站点
+.venv/bin/python gsc.py                      # 复查 sites.json 的 gsc_site（不配则只列站点）
+.venv/bin/python gsc.py --site example.com   # 复查指定站点
 .venv/bin/python gsc.py --site example.com --no-inspect   # 只看趋势，跳过 URL Inspection（快很多）
 .venv/bin/python gsc.py --site example.com --compare        # 本期 vs 上一等长期的涨跌页/查询
 .venv/bin/python gsc.py --site example.com --cannibalization  # ⚠️ 贵查询，见下
@@ -63,6 +64,9 @@ uv pip install google-auth requests
 .venv/bin/python psi.py                      # PSI：实验室 Lighthouse + 现场 CrUX 双口径
 .venv/bin/python indexnow.py --file urls.txt # IndexNow 增量推送（先 --dry-run 预演）
 ```
+
+`--site` 接受三种写法：裸域名 `example.com`、GSC 资源名 `sc-domain:example.com`、
+完整 URL `https://www.example.com/`——三者等价，都会匹配到同一个 GSC 资源。
 
 大陆访问 GSC / GA4 需 `https_proxy` 代理；Bing、CF 直连即可。
 

@@ -1,4 +1,6 @@
+import os
 import socket
+import tempfile
 import unittest
 from unittest import mock
 
@@ -9,6 +11,15 @@ from gsc import (
     normalize_site, pick_site, parse_sitemap_locs, is_sitemap_index,
     _is_public_http_url, _fetch_guarded, fetch_sitemap_urls,
 )
+
+
+def write_conf(obj):
+    """写一份 sites.json 到临时文件，返回路径。"""
+    import json
+    fd, path = tempfile.mkstemp(suffix=".json")
+    with os.fdopen(fd, "w") as f:
+        json.dump(obj, f)
+    return path
 
 
 class TestNormalizeSite(unittest.TestCase):
@@ -22,6 +33,21 @@ class TestNormalizeSite(unittest.TestCase):
         self.assertEqual(normalize_site("https://www.example.com/"), "www.example.com")
 
 
+    def test_sc_domain_prefix_stripped(self):
+        """sc-domain: 是 GSC 资源名前缀，不是域名的一部分。
+
+        normalize_site 的职责是「规整为裸域名」，必须去掉它——
+        否则 pick_site 用 _bare_host()（已去前缀）比对时永远匹配不上。
+        """
+        self.assertEqual(normalize_site("sc-domain:example.org"), "example.org")
+
+    def test_sc_domain_with_trailing_slash(self):
+        self.assertEqual(normalize_site("sc-domain:example.org/"), "example.org")
+
+    def test_sc_domain_inside_url(self):
+        self.assertEqual(normalize_site("https://sc-domain:example.org/"), "example.org")
+
+
 class TestPickSite(unittest.TestCase):
     SITES = ["sc-domain:example.org", "https://example.com/", "https://www.foo.com/"]
     def test_sc_domain(self):
@@ -32,6 +58,16 @@ class TestPickSite(unittest.TestCase):
         self.assertEqual(pick_site(self.SITES, "www.foo.com"), "https://www.foo.com/")
     def test_www_variant(self):
         self.assertEqual(pick_site(self.SITES, "foo.com"), "https://www.foo.com/")
+    def test_sc_domain_prefixed_input_matches(self):
+        """用户照 GSC 控制台原样粘 sc-domain:xxx 也必须能匹配。"""
+        self.assertEqual(pick_site(self.SITES, "sc-domain:example.org"), "sc-domain:example.org")
+
+    def test_sc_domain_prefixed_input_matches_url_site(self):
+        self.assertEqual(pick_site(self.SITES, "sc-domain:example.com"), "https://example.com/")
+
+    def test_sc_domain_prefixed_www_variant(self):
+        self.assertEqual(pick_site(self.SITES, "sc-domain:foo.com"), "https://www.foo.com/")
+
     def test_no_match(self):
         self.assertIsNone(pick_site(self.SITES, "unknown.com"))
     def test_substring_not_matched(self):
@@ -254,6 +290,44 @@ class TestFindCannibalization(unittest.TestCase):
         ]
         out = gsc.find_cannibalization(rows)
         self.assertEqual([o["query"] for o in out], ["kw1"])
+
+
+class TestChooseSite(unittest.TestCase):
+    """不带 --site 时应从 sites.json 取默认站点，否则每日命令只列站点拿不到报告。"""
+
+    SITES = ["sc-domain:example.org", "https://example.com/"]
+
+    def test_cli_wins(self):
+        self.assertEqual(gsc.choose_site(self.SITES, "example.com"), "https://example.com/")
+
+    def test_falls_back_to_sites_json(self):
+        path = write_conf({"gsc_site": "example.org"})
+        try:
+            self.assertEqual(gsc.choose_site(self.SITES, None, conf_path=path),
+                             "sc-domain:example.org")
+        finally:
+            os.unlink(path)
+
+    def test_cli_beats_conf(self):
+        path = write_conf({"gsc_site": "example.org"})
+        try:
+            self.assertEqual(gsc.choose_site(self.SITES, "example.com", conf_path=path),
+                             "https://example.com/")
+        finally:
+            os.unlink(path)
+
+    def test_none_when_neither_given(self):
+        self.assertIsNone(gsc.choose_site(self.SITES, None, conf_path="/nonexistent/x.json"))
+
+    def test_conf_value_may_carry_sc_domain_prefix(self):
+        """sites.json 里的取值若带 sc-domain: 前缀也要能用。"""
+        path = write_conf({"gsc_site": "sc-domain:example.org"})
+        try:
+            self.assertEqual(gsc.choose_site(self.SITES, None, conf_path=path),
+                             "sc-domain:example.org")
+        finally:
+            os.unlink(path)
+
 
 
 if __name__ == "__main__":
