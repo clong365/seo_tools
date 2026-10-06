@@ -13,6 +13,7 @@ GSC + Bing + GA4 + CF Web Analytics + CrUX + PSI 收录/表现/流量/性能复�
 - Bing：`.venv/bin/python bing.py --site 域名`
 - GA4：`.venv/bin/python ga.py [--property 属性ID]`（账号 ID ≠ 属性 ID，`runReport` 用属性 ID）
 - IndexNow：`indexnow.py`（推送，非查询；key 在 `~/.config/seo-tools/indexnow.json`，按 host 配置）——从某站点项目的 submit-indexnow.mjs 移植为共享版（2026-10-02），URL 源=线上 sitemap（`--sitemap` 可重复）或 `--file`
+- 百度主动推送：`baidu.py`（推送，非查询；token 在 `~/.config/seo-tools/baidu.json`，按站点 origin 配置）——结构与 indexnow.py 同（`--file` / `--sitemap` / `--dry-run`）。**data.zz.baidu.com 是国内 endpoint，本工具 `trust_env=False` 强制直连**（走海外代理会被风控/超时）。配额由百度按站点质量动态给（2023-09 收紧后老站常见 100 条/天，新站可能 0~10 条），响应 `remain` 字段是唯一权威来源，工具在 remain=0 时自动停推。
 - CF Web Analytics：`.venv/bin/python cf.py`
 - Workers Analytics Engine：`.venv/bin/python cf.py --ae --preset 3h`（输出纯 JSON）或
   `--ae --sql-file <path>`。2026-10-04 从 cf CLI(OAuth) 迁到 API token——**同一把
@@ -108,7 +109,7 @@ Google Search Analytics 的**负载**（load quota）不是按次数算，是按
   （那条链路曾报 "No authentication token found" 后自愈，根因未查明——用 REST 可整个
   消灭 OAuth 故障面）。备选路径：GraphQL `accountTag` 下 `analyticsEngineAdaptiveGroups`
   （未实测）。
-- **百度**：无 API，且相关项目不做百度优化。
+- **百度**：抓取/收录数据无 API（只能看 ziyuan.baidu.com 控制台）；主动推送有 API（data.zz.baidu.com/urls），见运行节 `baidu.py`。（2026-10-06 更新：原「不做百度优化」裁决已由用户撤销，改为低成本基础包——搜索资源平台接入 + 主动推送 + robots 确认。）
 - **两种鉴权不可互换（2026-10-02 实测，别浪费时间试）**：
   - **CrUX 只能 API key**：带 SA token（`openid` 或 `cloud-platform`）请求 → **400 INVALID_ARGUMENT**；SA token + key 参数同时给也 400；**只有 API key 参数**得到 200 ⇒ `crux-api-key.txt` **不可删**。
   - **PSI 反过来**：SA token（**scope 必须 `openid`**）→ 200，无需 API key；`cloud-platform`/`cloud-platform.read-only`/`userinfo.email` 均 403 `ACCESS_TOKEN_SCOPE_INSUFFICIENT`。
