@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""GSC 收录/表现复查 — service account 只读（共享版）。
+"""GSC 收录/表现复查 + sitemap 提交（共享版）。
 
 用法:
     .venv/bin/python gsc.py               # 列出 key 能访问的所有站点
     .venv/bin/python gsc.py --site example.com
+    .venv/bin/python gsc.py --site example.com --submit-sitemap https://example.com/blog/sitemap-index.xml
+                                          # 提交 sitemap（可重复给多个），随后自动打印 sitemap 状态
 """
 import argparse
 import datetime as dt
@@ -163,6 +165,17 @@ def fetch_sitemap_urls(base_url):
             return urls
         return locs
     return []
+
+
+def submit_sitemap(token, site, feed_url):
+    """提交一个 sitemap（GSC API sitemaps.submit = PUT）。
+
+    成功时 GSC 返回 204 No Content（空 body），不要按 JSON 解析返回值。
+    feed_url 必须是完整 URL，路径段整体 percent-encode（safe=""）。
+    """
+    url = SITEMAPS_URL.format(site=quote(site, safe="")) + "/" + quote(feed_url, safe="")
+    r = api(token, "PUT", url)
+    r.raise_for_status()
 
 
 def sitemaps_report(token, site):
@@ -428,6 +441,9 @@ def main():
     ap.add_argument("--cannibalization", action="store_true",
                     help="查同词多页竞争。⚠️ 需 query+page 双维分组，是 Search Analytics "
                          "里最贵的查询，且日期范围越长越贵——默认关闭，按需开启")
+    ap.add_argument("--submit-sitemap", action="append", dest="submit_sitemaps",
+                    metavar="URL",
+                    help="提交一个 sitemap 到 GSC（完整 URL，可重复）。提交后自动打印 sitemap 状态。")
     args = ap.parse_args()
 
     key_path = os.path.expanduser(args.key)
@@ -461,6 +477,14 @@ def main():
         sys.exit(f"'{want}' 不在可访问列表。可访问: {sites}")
 
     print(f"\n=== 选中站点: {site} ===")
+    if args.submit_sitemaps:
+        print("\n=== Sitemap 提交 ===")
+        for feed in args.submit_sitemaps:
+            try:
+                submit_sitemap(token, site, feed)
+                print(f"  已提交: {feed}")
+            except Exception as ex:
+                sys.exit(f"  提交失败 {feed}: {ex}")
     sitemaps_report(token, site)
     search_analytics(token, site, args.days)
     if args.compare:

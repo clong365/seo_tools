@@ -330,5 +330,29 @@ class TestChooseSite(unittest.TestCase):
 
 
 
+class TestSubmitSitemap(unittest.TestCase):
+    """sitemaps.submit = PUT sites/{site}/sitemaps/{feedpath}，两段都要 percent-encode。"""
+
+    def test_put_url_encoding(self):
+        with mock.patch.object(gsc, "api") as m:
+            m.return_value = mock.Mock()
+            gsc.submit_sitemap("tok", "sc-domain:example.org",
+                               "https://example.com/blog/sitemap-index.xml")
+        self.assertEqual(m.call_args[0][1], "PUT")
+        self.assertEqual(
+            m.call_args[0][2],
+            "https://www.googleapis.com/webmasters/v3/sites/"
+            "sc-domain%3Aexample.org/sitemaps/"
+            "https%3A%2F%2Fexample.com%2Fblog%2Fsitemap-index.xml")
+
+    def test_http_error_propagates(self):
+        resp = mock.Mock()
+        resp.raise_for_status.side_effect = requests.HTTPError("403")
+        with mock.patch.object(gsc, "api", return_value=resp):
+            with self.assertRaises(requests.HTTPError):
+                gsc.submit_sitemap("tok", "sc-domain:example.org",
+                                   "https://example.com/sitemap.xml")
+
+
 if __name__ == "__main__":
     unittest.main()
