@@ -27,7 +27,7 @@ import gsc
 
 DEFAULT_DB = os.environ.get("SEO_SNAPSHOT_DB", "~/projects/seo/data/snapshots.db")
 GA4_METRICS = ["screenPageViews", "engagedSessions", "sessions", "activeUsers"]
-TW_PREFIX = "/zh-tw/"  # 简繁分组口径与 内部分析口径一致：路径前缀即语言版本
+TW_PREFIX = "/zh-tw/"  # 简繁分组口径：路径前缀即语言版本
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS ga4_daily (
@@ -100,7 +100,7 @@ def resolve_date(value):
 def build_ga4_body(date, section):
     """runReport 请求体：单日、按简繁页路径前缀过滤。
 
-    口径与 内部分析口径一致：GA4 language 维度不分简繁，
+    GA4 language 维度不分简繁，
     用 pagePath 前缀 /zh-tw/ 切——tw=前缀命中，cn=前缀不命中。
     """
     path_filter = {"filter": {"fieldName": "pagePath",
