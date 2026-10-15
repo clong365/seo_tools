@@ -7,6 +7,7 @@ from unittest import mock
 import requests
 
 from cf import (extract_rows, build_query, build_edge_query, extract_edge_rows,
+               build_md429_query, extract_md429_rows,
                build_sql, ae_query, ae_report)
 
 
@@ -76,6 +77,42 @@ class TestEdge(unittest.TestCase):
 
     def test_extract_empty(self):
         self.assertEqual(extract_edge_rows({"data": {"viewer": {"zones": []}}}), {})
+
+
+class TestMd429(unittest.TestCase):
+    def test_build_query_filters(self):
+        q = build_md429_query("ZONE", "2026-10-14")
+        self.assertIn('zoneTag: "ZONE"', q)
+        self.assertIn('date_geq: "2026-10-14"', q)
+        self.assertIn('date_leq: "2026-10-14"', q)
+        self.assertIn("edgeResponseStatus: 429", q)
+        self.assertIn('requestSource: "eyeball"', q)  # 同 build_edge_query 的遥测噪声口径
+        self.assertIn("clientRequestHTTPHost", q)
+        self.assertIn("clientRequestPath", q)
+
+    def test_extract_counts_only_md_paths_per_host(self):
+        resp = {"data": {"viewer": {"zones": [{"httpRequestsAdaptiveGroups": [
+            {"count": 12, "dimensions": {"clientRequestHTTPHost": "a.example.com",
+                                         "clientRequestPath": "/md/p02/_/1/161/1242.md"}},
+            {"count": 3, "dimensions": {"clientRequestHTTPHost": "a.example.com",
+                                        "clientRequestPath": "/zh-tw/md/p02/_/1/161/1242.md"}},
+            {"count": 7, "dimensions": {"clientRequestHTTPHost": "b.example.com",
+                                        "clientRequestPath": "/md/p01/_/2/3/4.md"}},
+            {"count": 99, "dimensions": {"clientRequestHTTPHost": "a.example.com",
+                                         "clientRequestPath": "/api/search?q=x"}},
+        ]}]}}}
+        self.assertEqual(extract_md429_rows(resp),
+                         {"a.example.com": 15, "b.example.com": 7})
+
+    def test_extract_empty(self):
+        self.assertEqual(extract_md429_rows({"data": {"viewer": {"zones": []}}}), {})
+
+    def test_extract_tolerates_null_path(self):
+        resp = {"data": {"viewer": {"zones": [{"httpRequestsAdaptiveGroups": [
+            {"count": 2, "dimensions": {"clientRequestHTTPHost": "a.example.com",
+                                        "clientRequestPath": None}},
+        ]}]}}}
+        self.assertEqual(extract_md429_rows(resp), {})
 
 
 

@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""每日历史快照 — GA4 / GSC / CF 边缘状态码入本地 SQLite（共享版）。
+"""每日历史快照 — GA4 / GSC / CF 边缘状态码 / /md/ 429 入本地 SQLite（共享版）。
 
 GSC Coverage 与 GA4 Realtime 无历史可查，本工具每天落一份快照到本地库，
-供跨日对比（coverage.py 管 GSC Coverage 手动导出，本脚本管 API 可查的三源）。
+供跨日对比（coverage.py 管 GSC Coverage 手动导出，本脚本管 API 可查的源）。
 
 用法:
     .venv/bin/python snapshot.py run                      # 快照昨天（默认）
     .venv/bin/python snapshot.py run --date 2026-10-11    # 补/刷指定日（幂等，同日重跑覆盖）
 
 存储: ~/projects/seo/data/snapshots.db（仓外；--db 或 SEO_SNAPSHOT_DB 可改）。
-cron 口径: 退出码 0=三源全部成功；任一源失败=该源数据不写、其余照写，
+cron 口径: 退出码 0=全部源成功；任一源失败=该源数据不写、其余照写，
 stderr 打 `FAIL <源>: <错误>` 且退出码 1 —— 监控按退出码非零告警即可。
 """
 import argparse
@@ -53,6 +53,12 @@ CREATE TABLE IF NOT EXISTS cf_edge_daily (
   status INTEGER NOT NULL,
   count INTEGER NOT NULL,
   PRIMARY KEY (date, status)
+);
+CREATE TABLE IF NOT EXISTS cf_md429_daily (
+  date TEXT NOT NULL,
+  host TEXT NOT NULL,
+  count INTEGER NOT NULL,
+  PRIMARY KEY (date, host)
 );
 CREATE TABLE IF NOT EXISTS coverage_summary (
   date TEXT NOT NULL,
@@ -177,6 +183,19 @@ def fetch_cf_edge(conn, date, token, zone):
     store_cf_edge(conn, date, cf.extract_edge_rows(resp).get(date, {}))
 
 
+def store_cf_md429(conn, date, by_host):
+    for host, count in by_host.items():
+        conn.execute(
+            "INSERT OR REPLACE INTO cf_md429_daily (date, host, count) VALUES (?, ?, ?)",
+            (date, host, int(count)))
+
+
+def fetch_cf_md429(conn, date, token, zone):
+    """/md/ 路径 429 日计数（搜索上线配套监控，正常应≈0；判读口径见 AGENTS.md）。"""
+    resp = cf.run_query(token, cf.build_md429_query(zone, date))
+    store_cf_md429(conn, date, cf.extract_md429_rows(resp))
+
+
 # ---------- 编排 ----------
 
 def run_snapshot(date, db_path, fetchers):
@@ -224,7 +243,13 @@ def build_fetchers(args):
         token = open(cf_key).read().strip()
         fetch_cf_edge(conn, date, token, zone)
 
-    return {"gsc": do_gsc, "ga4": do_ga4, "cf": do_cf}
+    def do_cf_md429(conn, date):
+        zone = config.require("cf_zone", "CF_ZONE", args.zone)
+        cf_key = os.path.expanduser(args.cf_key)
+        token = open(cf_key).read().strip()
+        fetch_cf_md429(conn, date, token, zone)
+
+    return {"gsc": do_gsc, "ga4": do_ga4, "cf": do_cf, "cf_md429": do_cf_md429}
 
 
 def main():

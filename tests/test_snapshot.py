@@ -24,6 +24,7 @@ class TestSchema(unittest.TestCase):
         self.assertIn("ga4_daily", tables)
         self.assertIn("gsc_daily", tables)
         self.assertIn("cf_edge_daily", tables)
+        self.assertIn("cf_md429_daily", tables)
         conn.close()
 
 
@@ -117,6 +118,14 @@ class TestStore(unittest.TestCase):
         rows = dict(self.conn.execute(
             "SELECT status, count FROM cf_edge_daily WHERE date='2026-10-11'"))
         self.assertEqual(rows, {200: 1200, 301: 50, 404: 30})
+
+    def test_store_cf_md429_upsert_per_host(self):
+        snapshot.store_cf_md429(self.conn, "2026-10-11", {"a.example.com": 3})
+        snapshot.store_cf_md429(self.conn, "2026-10-11",
+                                {"a.example.com": 5, "b.example.com": 2})
+        rows = dict(self.conn.execute(
+            "SELECT host, count FROM cf_md429_daily WHERE date='2026-10-11'"))
+        self.assertEqual(rows, {"a.example.com": 5, "b.example.com": 2})
 
 
 class TestRunSnapshot(unittest.TestCase):

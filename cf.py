@@ -176,6 +176,48 @@ def extract_edge_rows(resp):
     return out
 
 
+def build_md429_query(zone, date):
+    """单日全站 429 按 host × path 分组（调用方本地筛 /md/ 路径汇总）。
+
+    不按 host 字面量过滤（真实域名属脱敏边界，不进源码），host 作为维度返回。
+    必须带 requestSource="eyeball"（同 build_edge_query：Cache API 遥测行会污染）。
+    不过滤路径而用本地筛选的原因：GraphQL 的 _like 不支持「或」，而 /md/ 有
+    简体（/md/…）与繁体（/zh-tw/md/…）两种前缀；429 全站本应稀少，limit 1000 够。
+    """
+    return f'''
+{{
+  viewer {{
+    zones(filter: {{zoneTag: "{zone}"}}) {{
+      httpRequestsAdaptiveGroups(
+        limit: 1000
+        filter: {{date_geq: "{date}", date_leq: "{date}",
+                 edgeResponseStatus: 429, requestSource: "eyeball"}}
+        orderBy: [count_DESC]
+      ) {{
+        count
+        dimensions {{ clientRequestHTTPHost clientRequestPath }}
+      }}
+    }}
+  }}
+}}
+'''
+
+
+def extract_md429_rows(resp):
+    """GraphQL 响应 → {host: /md/ 路径 429 计数}（只计路径含 /md/ 的行）。"""
+    zones = resp.get("data", {}).get("viewer", {}).get("zones", [])
+    out = {}
+    if not zones:
+        return out
+    for g in zones[0].get("httpRequestsAdaptiveGroups", []):
+        d = g.get("dimensions", {})
+        if "/md/" not in (d.get("clientRequestPath") or ""):
+            continue
+        host = d.get("clientRequestHTTPHost") or "?"
+        out[host] = out.get(host, 0) + g.get("count", 0)
+    return out
+
+
 def print_edge(resp):
     by_date = extract_edge_rows(resp)
     print("\n=== 边缘请求按日（zone 级，含无 JS 爬虫）===")
