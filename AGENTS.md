@@ -16,11 +16,14 @@ GSC + Bing + GA4 + CF Web Analytics + CrUX + PSI 收录/表现/流量/性能复�
 - 百度主动推送：`baidu.py`（推送，非查询；token 在 `~/.config/seo-tools/baidu.json`，按站点 origin 配置）——结构与 indexnow.py 同（`--file` / `--sitemap` / `--dry-run`）。**data.zz.baidu.com 是国内 endpoint，本工具 `trust_env=False` 强制直连**（走海外代理会被风控/超时）。配额由百度按站点质量动态给（2023-09 收紧后老站常见 100 条/天，新站可能 0~10 条），响应 `remain` 字段是唯一权威来源，工具在 remain=0 时自动停推。
 - CF Web Analytics：`.venv/bin/python cf.py`
 - 每日快照：`snapshot.py run [--date YYYY-MM-DD]`（默认昨天，幂等——同日重跑整体覆盖）。
-  四源入本地 SQLite（`~/projects/seo/data/snapshots.db`，**仓外**，`--db` 或 `SEO_SNAPSHOT_DB` 可改）：
+  五源入本地 SQLite（`~/projects/seo/data/snapshots.db`，**仓外**，`--db` 或 `SEO_SNAPSHOT_DB` 可改）：
   GA4 按日×简繁（screenPageViews/engagedSessions/sessions/activeUsers：
   language 维度不分简繁，用 pagePath 前缀 `/zh-tw/` 切，cn=notExpression 取反）、
   GSC 效果按日（clicks/impressions/ctr/position，**自动带 3 天回看窗口**——GSC 数据滞后 2-3 天，
-  只查「昨天」会永远落空）、CF 边缘按日×状态码（eyeball-only，同 `cf.py --edge` 口径）、
+  只查「昨天」会永远落空）、**GSC sitemap 计数按日×sitemap**（表 `sitemap_daily`：
+  sitemaps.list 的 submitted——⚠️ `indexed` 字段已被 Google 废弃恒为 0（2026-10-17 实测），
+  列保留但无信号；sitemap 索引文件本身无 contents，计数在各子 sitemap 上）、
+  CF 边缘按日×状态码（eyeball-only，同 `cf.py --edge` 口径）、
   **/md/ 路径 429 按日×host**（表 `cf_md429_daily`，eyeball-only；判读口径属部署细节，见仓外内部文档）。
   **cron 环境代理（2026-10-17 断档修复）**：cron 无交互 shell 的代理变量，Google 源
   会卡在 oauth2 连接超时——启动时读 `~/.config/seo-tools/proxy.env`（KEY=VALUE，

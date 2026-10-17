@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""每日历史快照 — GA4 / GSC / CF 边缘状态码 / /md/ 429 入本地 SQLite（共享版）。
+"""每日历史快照 — GA4 / GSC 效果 / GSC sitemap 收录计数 / CF 边缘状态码 / /md/ 429 入本地 SQLite（共享版）。
 
 GSC Coverage 与 GA4 Realtime 无历史可查，本工具每天落一份快照到本地库，
 供跨日对比（coverage.py 管 GSC Coverage 手动导出，本脚本管 API 可查的源）。
@@ -99,6 +99,15 @@ CREATE TABLE IF NOT EXISTS cf_md429_daily (
   host TEXT NOT NULL,
   count INTEGER NOT NULL,
   PRIMARY KEY (date, host)
+);
+CREATE TABLE IF NOT EXISTS sitemap_daily (
+  date TEXT NOT NULL,
+  site TEXT NOT NULL,
+  sitemap TEXT NOT NULL,
+  type TEXT NOT NULL,             -- GSC contents.type，如 WEB
+  submitted INTEGER NOT NULL,
+  indexed INTEGER NOT NULL,
+  PRIMARY KEY (date, site, sitemap, type)
 );
 CREATE TABLE IF NOT EXISTS coverage_summary (
   date TEXT NOT NULL,
@@ -209,6 +218,44 @@ def fetch_gsc(conn, date, token, site):
         store_gsc(conn, row.get("keys", [date])[0], site, row)
 
 
+# ---------- GSC sitemap 收录计数 ----------
+
+def parse_sitemap_entries(resp):
+    """sitemaps.list 响应 → [(sitemap路径, type, submitted, indexed)]。
+
+    sitemap 索引文件本身没有 contents（计数挂在各子 sitemap 上），跳过；
+    submitted/indexed 在响应里是字符串数字。
+    """
+    rows = []
+    for e in resp.get("sitemap", []):
+        for c in e.get("contents", []):
+            rows.append((e.get("path", ""), c.get("type", "?"),
+                         int(c.get("submitted", 0)), int(c.get("indexed", 0))))
+    return rows
+
+
+def store_sitemaps(conn, date, site, rows):
+    conn.executemany(
+        "INSERT OR REPLACE INTO sitemap_daily"
+        " (date, site, sitemap, type, submitted, indexed) VALUES (?, ?, ?, ?, ?, ?)",
+        [(date, site, sm, t, sub, idx) for sm, t, sub, idx in rows])
+
+
+def fetch_sitemaps(conn, date, token, site):
+    """每个 sitemap 的 submitted 计数 + 收录占位按日入库。
+
+    ⚠️ contents[].indexed 已被 Google 废弃、恒为 0（Go 客户端文档原话
+    "Indexed: Deprecated; do not use"，2026-10-17 实测确认）——列保留仅因
+    评估时的表结构约定，有效信号是 submitted 趋势；收录率趋势在 API 侧没有
+    便宜路径（勘误见仓外评估报告 gsc-inspection-eval-20261017.md）。
+    配额近零（sitemaps 类与 Inspection 分开计）。
+    """
+    url = gsc.SITEMAPS_URL.format(site=gsc.quote(site, safe=""))
+    r = gsc.api(token, "GET", url)
+    r.raise_for_status()
+    store_sitemaps(conn, date, site, parse_sitemap_entries(r.json()))
+
+
 # ---------- CF 边缘 ----------
 
 def store_cf_edge(conn, date, by_status):
@@ -285,6 +332,12 @@ def build_fetchers(args):
             raise RuntimeError("未配 gsc_site（或 --site 不在可访问列表）")
         fetch_gsc(conn, date, google_token(), site)
 
+    def do_gsc_sitemaps(conn, date):
+        site = gsc.choose_site(gsc.list_sites(google_token()), args.site)
+        if not site:
+            raise RuntimeError("未配 gsc_site（或 --site 不在可访问列表）")
+        fetch_sitemaps(conn, date, google_token(), site)
+
     def do_ga4(conn, date):
         prop = config.require("ga_property", "GA_PROPERTY", args.property)
         fetch_ga4(conn, date, ga.get_token(key_path), prop)
@@ -301,7 +354,8 @@ def build_fetchers(args):
         token = open(cf_key).read().strip()
         fetch_cf_md429(conn, date, token, zone)
 
-    return {"gsc": do_gsc, "ga4": do_ga4, "cf": do_cf, "cf_md429": do_cf_md429}
+    return {"gsc": do_gsc, "gsc_sitemaps": do_gsc_sitemaps,
+            "ga4": do_ga4, "cf": do_cf, "cf_md429": do_cf_md429}
 
 
 def main():

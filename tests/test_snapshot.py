@@ -209,5 +209,56 @@ class TestProxyEnvFile(unittest.TestCase):
         self.assertFalse(s.trust_env)  # CF 口径=直连更稳，不吃注入的代理变量
 
 
+class TestSitemapsSource(unittest.TestCase):
+    """第五源：sitemaps.list 的 submitted/indexed 收录计数（近零配额，日级趋势）。"""
+
+    RESP = {"sitemap": [
+        {"path": "https://example.com/sitemap.xml", "lastSubmitted": "2026-10-01T00:00:00Z",
+         "isPending": False, "isSitemapsIndex": True, "warnings": "0", "errors": "0"},
+        {"path": "https://example.com/sitemap-cn.xml", "errors": "0", "warnings": "1",
+         "contents": [{"type": "WEB", "submitted": "120740", "indexed": "110000"}]},
+        {"path": "https://example.com/sitemap-tw.xml", "errors": "0", "warnings": "0",
+         "contents": [{"type": "WEB", "submitted": "124792", "indexed": "99482"}]},
+    ]}
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.conn = snapshot.open_db(os.path.join(self.tmp.name, "s.db"))
+
+    def tearDown(self):
+        self.conn.close()
+        self.tmp.cleanup()
+
+    def test_parse_skips_index_entries_without_contents(self):
+        rows = snapshot.parse_sitemap_entries(self.RESP)
+        self.assertEqual(rows, [
+            ("https://example.com/sitemap-cn.xml", "WEB", 120740, 110000),
+            ("https://example.com/sitemap-tw.xml", "WEB", 124792, 99482),
+        ])
+
+    def test_store_upsert_overwrites_same_day(self):
+        rows = snapshot.parse_sitemap_entries(self.RESP)
+        snapshot.store_sitemaps(self.conn, "2026-10-17", "example.com", rows)
+        snapshot.store_sitemaps(self.conn, "2026-10-17", "example.com",
+                                [("https://example.com/sitemap-cn.xml", "WEB", 120740, 111111)])
+        got = list(self.conn.execute(
+            "SELECT sitemap, submitted, indexed FROM sitemap_daily"
+            " WHERE date='2026-10-17' ORDER BY sitemap"))
+        self.assertEqual(got, [("https://example.com/sitemap-cn.xml", 120740, 111111),
+                               ("https://example.com/sitemap-tw.xml", 124792, 99482)])
+
+    def test_fetch_sitemaps_end_to_end(self):
+        from unittest import mock
+        resp = mock.Mock()
+        resp.json.return_value = self.RESP
+        with mock.patch.object(snapshot.gsc, "api", return_value=resp) as api:
+            snapshot.fetch_sitemaps(self.conn, "2026-10-17", "tok", "example.com")
+        self.assertEqual(api.call_args.args[1], "GET")
+        self.assertIn("sitemaps", api.call_args.args[2])
+        n = self.conn.execute(
+            "SELECT COUNT(*) FROM sitemap_daily WHERE date='2026-10-17'").fetchone()[0]
+        self.assertEqual(n, 2)
+
+
 if __name__ == "__main__":
     unittest.main()
