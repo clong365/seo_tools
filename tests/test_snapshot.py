@@ -4,6 +4,8 @@ import sqlite3
 import tempfile
 import unittest
 
+import requests
+
 import snapshot
 
 
@@ -158,6 +160,53 @@ class TestRunSnapshot(unittest.TestCase):
         self.assertEqual(snapshot.resolve_date("2026-10-01"), "2026-10-01")
         with self.assertRaises(ValueError):
             snapshot.resolve_date("10/01")
+
+
+class TestProxyEnvFile(unittest.TestCase):
+    """cron 环境没有代理变量：snapshot.py 自己读 env 文件补（setdefault 语义）。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write(self, text):
+        p = os.path.join(self.tmp.name, "proxy.env")
+        with open(p, "w") as f:
+            f.write(text)
+        return p
+
+    def test_parses_key_value_skips_comments_and_blanks(self):
+        p = self._write("# 注释\n\nhttps_proxy=http://127.0.0.1:7897\n"
+                        "https_proxy=http://later-wins\nexport FOO=bar\n")
+        self.assertEqual(snapshot.load_env_file(p),
+                         {"https_proxy": "http://later-wins", "FOO": "bar"})
+
+    def test_strips_optional_quotes(self):
+        p = self._write('https_proxy="http://127.0.0.1:7897"\n')
+        self.assertEqual(snapshot.load_env_file(p)["https_proxy"],
+                         "http://127.0.0.1:7897")
+
+    def test_missing_file_is_empty(self):
+        self.assertEqual(snapshot.load_env_file(
+            os.path.join(self.tmp.name, "nope.env")), {})
+
+    def test_apply_never_overrides_existing_env(self):
+        from unittest import mock
+        p = self._write("https_proxy=http://from-file:1\nNEW_KEY=from-file\n")
+        with mock.patch.dict(os.environ, {"https_proxy": "http://from-env:2"},
+                             clear=False):
+            os.environ.pop("NEW_KEY", None)
+            snapshot.apply_env_file(p)
+            self.assertEqual(os.environ["https_proxy"], "http://from-env:2")
+            self.assertEqual(os.environ["NEW_KEY"], "from-file")
+            os.environ.pop("NEW_KEY", None)
+
+    def test_direct_cf_session_bypasses_env_proxy(self):
+        s = snapshot.direct_cf_session()
+        self.assertIsInstance(s, requests.Session)
+        self.assertFalse(s.trust_env)  # CF 口径=直连更稳，不吃注入的代理变量
 
 
 if __name__ == "__main__":

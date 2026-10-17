@@ -235,10 +235,11 @@ def print_edge(resp):
         print(f"  {date:12}{c200:>10}{c301:>10}{c404:>10}{other:>10}{total:>12}")
 
 
-def run_query(token, query):
-    r = requests.post(GRAPHQL_URL,
-                      headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-                      json={"query": query}, timeout=TIMEOUT)
+def run_query(token, query, session=None):
+    post = (session or requests).post
+    r = post(GRAPHQL_URL,
+             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+             json={"query": query}, timeout=TIMEOUT)
     r.raise_for_status()
     body = r.json()
     if body.get("errors"):

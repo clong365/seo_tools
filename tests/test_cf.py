@@ -252,3 +252,15 @@ class TestAeReportDatasetFallback(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestRunQuerySession(unittest.TestCase):
+    def test_uses_given_session(self):
+        import cf
+        sess = mock.Mock()
+        resp = mock.Mock()
+        resp.json.return_value = {"data": {"ok": 1}}
+        sess.post.return_value = resp
+        out = cf.run_query("TOK", "{ viewer }", session=sess)
+        sess.post.assert_called_once()
+        self.assertEqual(out, {"data": {"ok": 1}})

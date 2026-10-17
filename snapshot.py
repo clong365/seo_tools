@@ -9,6 +9,9 @@ GSC Coverage 与 GA4 Realtime 无历史可查，本工具每天落一份快照�
     .venv/bin/python snapshot.py run --date 2026-10-11    # 补/刷指定日（幂等，同日重跑覆盖）
 
 存储: ~/projects/seo/data/snapshots.db（仓外；--db 或 SEO_SNAPSHOT_DB 可改）。
+代理: cron 环境没有交互 shell 的代理变量，Google 源必须走代理——启动时读
+~/.config/seo-tools/proxy.env（KEY=VALUE，setdefault 语义不覆盖已有环境变量）；
+CF 源保持直连口径（trust_env=False，不吃注入的代理）+ 超时重试一次。
 cron 口径: 退出码 0=全部源成功；任一源失败=该源数据不写、其余照写，
 stderr 打 `FAIL <源>: <错误>` 且退出码 1 —— 监控按退出码非零告警即可。
 """
@@ -28,6 +31,43 @@ import gsc
 DEFAULT_DB = os.environ.get("SEO_SNAPSHOT_DB", "~/projects/seo/data/snapshots.db")
 GA4_METRICS = ["screenPageViews", "engagedSessions", "sessions", "activeUsers"]
 TW_PREFIX = "/zh-tw/"  # 简繁分组口径：路径前缀即语言版本
+# cron 环境没有交互 shell 的代理变量；Google 源必须走代理，故启动时从这里补
+PROXY_ENV_FILE = os.environ.get("SEO_PROXY_ENV", "~/.config/seo-tools/proxy.env")
+
+
+def load_env_file(path):
+    """读 KEY=VALUE env 文件 → dict。缺文件/注释/空行容忍；支持 export 前缀与引号。"""
+    out = {}
+    try:
+        with open(os.path.expanduser(path)) as f:
+            lines = f.readlines()
+    except OSError:
+        return out
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        line = line.removeprefix("export ").strip()
+        if "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        v = v.strip().strip('"').strip("'")
+        if k.strip():
+            out[k.strip()] = v
+    return out
+
+
+def apply_env_file(path=PROXY_ENV_FILE):
+    """setdefault 语义注入 env 文件：已存在的环境变量（交互 shell/crontab 行内 env）优先。"""
+    for k, v in load_env_file(path).items():
+        os.environ.setdefault(k, v)
+
+
+def direct_cf_session():
+    """CF 口径=直连更稳：trust_env=False，不吃 apply_env_file 注入的代理变量。"""
+    s = requests.Session()
+    s.trust_env = False
+    return s
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS ga4_daily (
@@ -178,8 +218,20 @@ def store_cf_edge(conn, date, by_status):
             (date, int(status), int(count)))
 
 
+def _cf_query(token, query, attempts=2):
+    """CF 查询：直连 session + 超时重试一次（cron 场景一次误超时就漏一天）。"""
+    session = direct_cf_session()
+    for i in range(attempts):
+        try:
+            return cf.run_query(token, query, session=session)
+        except requests.Timeout:
+            if i == attempts - 1:
+                raise
+    raise AssertionError("unreachable")
+
+
 def fetch_cf_edge(conn, date, token, zone):
-    resp = cf.run_query(token, cf.build_edge_query(zone, date, date, eyeball=True))
+    resp = _cf_query(token, cf.build_edge_query(zone, date, date, eyeball=True))
     store_cf_edge(conn, date, cf.extract_edge_rows(resp).get(date, {}))
 
 
@@ -192,7 +244,7 @@ def store_cf_md429(conn, date, by_host):
 
 def fetch_cf_md429(conn, date, token, zone):
     """/md/ 路径 429 日计数（搜索上线配套监控，正常应≈0；判读口径见 AGENTS.md）。"""
-    resp = cf.run_query(token, cf.build_md429_query(zone, date))
+    resp = _cf_query(token, cf.build_md429_query(zone, date))
     store_cf_md429(conn, date, cf.extract_md429_rows(resp))
 
 
@@ -268,6 +320,7 @@ def main():
     args = ap.parse_args()
 
     if args.cmd == "run":
+        apply_env_file()  # cron 环境无代理变量：Google 源必须走代理，从 env 文件补
         try:
             date = resolve_date(args.date)
         except ValueError:

@@ -22,6 +22,10 @@ GSC + Bing + GA4 + CF Web Analytics + CrUX + PSI 收录/表现/流量/性能复�
   GSC 效果按日（clicks/impressions/ctr/position，**自动带 3 天回看窗口**——GSC 数据滞后 2-3 天，
   只查「昨天」会永远落空）、CF 边缘按日×状态码（eyeball-only，同 `cf.py --edge` 口径）、
   **/md/ 路径 429 按日×host**（表 `cf_md429_daily`，eyeball-only；判读口径属部署细节，见仓外内部文档）。
+  **cron 环境代理（2026-10-17 断档修复）**：cron 无交互 shell 的代理变量，Google 源
+  会卡在 oauth2 连接超时——启动时读 `~/.config/seo-tools/proxy.env`（KEY=VALUE，
+  setdefault 语义，已有环境变量优先）；**CF 源保持直连口径**（`trust_env=False`
+  直连 session，不吃注入的代理）+ 超时自动重试一次。
   **cron 告警口径：退出码 0=全部源成功；任一源失败该源不写、其余照写，stderr 打
   `FAIL <源>: <错误>`，退出码 1** —— 监控按退出码非零告警即可。
 - Coverage 导入器：GSC Coverage（网页索引）**无 API**，只能控制台手动导出，用
